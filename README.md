@@ -4,8 +4,8 @@ A TL's lens for reviewing code, architecture and implementation. A Claude Code p
 
 | Command | What it does |
 |---|---|
-| `/leadlens:weekly-report [since] [until]` | Weekly report: delivered work, PRs, reviews, blockers, TL action items. Defaults to last Monday to Sunday. |
-| `/leadlens:monthly-report [YYYY-MM]` | Monthly report: delivery themes, trend versus the previous month, recurring blockers, coaching signals. |
+| `/leadlens:weekly-report [since] [until] [github-login]` | Weekly report: delivered work, PRs, reviews, blockers, TL action items. Defaults to last Monday to Sunday. Add a GitHub login for a one-person report. |
+| `/leadlens:monthly-report [YYYY-MM] [github-login]` | Monthly report: delivery themes, trend versus the previous month, recurring blockers, coaching signals. Add a GitHub login for a one-person report, useful for one-on-one prep. |
 | `/leadlens:quick-review [base-ref] [--fast]` | Review of changed files against UI/UX, accessibility and defensive security checklists, plus prettier, eslint, typecheck and tests. |
 
 The hook runs on every `Edit` and `Write` and blocks the write when the new text contains a hardcoded credential, a cloud or payment key, or a private key block. Everything else (XSS, a11y, debug statements) is reported by `quick-review`, never blocked.

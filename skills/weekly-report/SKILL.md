@@ -1,17 +1,21 @@
 ---
 name: weekly-report
 description: Generate a weekly engineering report for the team from GitHub activity. Delivered work, PRs, reviews, blockers and TL action items. Use when asked for a weekly team report, sprint summary, or what the team shipped this week.
-argument-hint: "[since YYYY-MM-DD] [until YYYY-MM-DD]"
-arguments: since until
+argument-hint: "[since YYYY-MM-DD] [until YYYY-MM-DD] [github-login]"
 disable-model-invocation: true
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-github-activity.sh *) Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/quick-checks.sh *) Bash(date *) Bash(git merge-base *) Bash(git rev-list *) Read Write
 ---
 
 # Weekly Team Report
 
-## 1. Resolve the range
+## 1. Parse arguments
 
-Use `$since` and `$until` if given. Otherwise use the previous full week, Monday to Sunday, relative to today (run `date` to get today). State the resolved range in one line before continuing.
+`$ARGUMENTS` holds zero or more space-separated tokens, in any order:
+
+- Tokens matching `YYYY-MM-DD` are dates. The first is SINCE, the second is UNTIL. If only one is given, treat it as SINCE and use SINCE plus six days as UNTIL.
+- Any other token is a GitHub login: this is a **person report** for that one member. Strip a leading `@` if present.
+
+With no dates, use the previous full week, Monday to Sunday, relative to today (run `date` to get today). State the resolved range, and the person if any, in one line before continuing.
 
 ## 2. Collect
 
@@ -20,6 +24,8 @@ Run exactly:
 ```
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-github-activity.sh --since <SINCE> --until <UNTIL> --out .claude/reports/data/weekly-<SINCE>.json
 ```
+
+For a person report add `--members <login>` and name the data file `weekly-<SINCE>-<login>.json`. The login must be the GitHub username as listed in `members` of `.claude/team-report.json`, not a display name. If the collector returns no activity for it, say so and stop; do not fall back to the whole team.
 
 If it exits non-zero, show the error, give the one-line fix (`gh auth login`, install `jq`, or add `members` and `repos` to `.claude/team-report.json`) and stop. Do not write a report from partial or guessed data.
 
@@ -43,11 +49,14 @@ Report counts and themes only, under **Review health** in the Team view. Do not 
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/report-format.md` and produce the report in that exact shape. Save it to `.claude/reports/weekly/<ISO-year>-W<week-number>.md`, then print the **TL Summary** and **TL Action Items** sections in the conversation with the saved path.
 
+**Person report**: keep the TL Summary, that one developer's section and TL Action Items. Drop the Team view and Review health. Save to `.claude/reports/weekly/<ISO-year>-W<week-number>-<login>.md` so the team report for the same week is not overwritten.
+
 ## Standing rules
 
 These apply to every turn of this task, not only the first:
 
 - Never rank people by commit count.
+- In a person report, do not compare the person with teammates or mention other members' work. It is one-on-one prep, not a league table.
 - Every claim about delivered work carries a PR, issue or commit reference.
 - Where evidence is missing, write "Not enough GitHub evidence" instead of inferring.
 - Keep facts and interpretation in separate sections.
