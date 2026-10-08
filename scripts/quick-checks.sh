@@ -42,10 +42,16 @@ add() { results=$(jq -c --argjson r "$1" '. + [$r]' <<< "$results"); }
 
 add "$(run patterns 10 bash "$HERE/scan-patterns.sh" --files "${CHANGED[@]}")"
 if [[ -f package.json ]] && command -v npx >/dev/null 2>&1; then
-  WEB=(); for f in "${CHANGED[@]}"; do [[ "$f" =~ \.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|css|scss)$ ]] && WEB+=("$f"); done
-  if [[ ${#WEB[@]} -gt 0 ]]; then
-    add "$(run prettier 30 npx --no-install prettier --check "${WEB[@]}")"
-    add "$(run eslint 60 npx --no-install eslint --max-warnings 0 "${WEB[@]}")"
+  WEB=(); SCRIPT=(); STYLE=()
+  for f in "${CHANGED[@]}"; do
+    [[ "$f" =~ \.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|css|scss|html)$ ]] && WEB+=("$f")
+    [[ "$f" =~ \.(ts|tsx|js|jsx|mjs|cjs|vue|svelte)$ ]] && SCRIPT+=("$f")
+    [[ "$f" =~ \.(css|scss)$ ]] && STYLE+=("$f")
+  done
+  [[ ${#WEB[@]} -gt 0 ]] && add "$(run prettier 30 npx --no-install prettier --check "${WEB[@]}")"
+  [[ ${#SCRIPT[@]} -gt 0 ]] && add "$(run eslint 60 npx --no-install eslint --max-warnings 0 "${SCRIPT[@]}")"
+  if [[ ${#STYLE[@]} -gt 0 ]] && ls .stylelintrc* stylelint.config.* >/dev/null 2>&1; then
+    add "$(run stylelint 60 npx --no-install stylelint "${STYLE[@]}")"
   fi
   if (( ! FAST )); then
     [[ -f tsconfig.json ]] && add "$(run typecheck 180 npx --no-install tsc --noEmit)"

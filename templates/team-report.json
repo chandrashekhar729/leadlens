@@ -1,5 +1,11 @@
 {
-  "members": ["github-username-1", "github-username-2"],
-  "repos": ["your-org/your-repo"],
-  "notes": "Copy this file to .claude/team-report.json in your project. members are GitHub logins, not display names. repos may list several owner/name entries."
+  "members": [
+    "github-username-1",
+    "github-username-2"
+  ],
+  "repos": [
+    "your-org/your-repo"
+  ],
+  "baseUrl": "http://localhost:8080",
+  "notes": "Copy this file to .claude/team-report.json in your project. members are GitHub logins, not display names. repos may list several owner/name entries. baseUrl is optional: the local URL where the app is already served, used by browser verification instead of starting a dev server."
 }

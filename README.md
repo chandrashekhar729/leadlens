@@ -44,11 +44,16 @@ Copy `templates/team-report.json` to `.claude/team-report.json` in the project y
 ```json
 {
   "members": ["github-login-1", "github-login-2"],
-  "repos": ["your-org/your-repo"]
+  "repos": ["your-org/your-repo"],
+  "baseUrl": "http://localhost:8080"
 }
 ```
 
-Members are GitHub logins. Without this file the collector uses the current repo and everyone who committed in the range.
+Members are GitHub logins. Without this file the collector uses the current repo and everyone who committed in the range. `baseUrl` is optional: the local URL where the app is already served, for example by Apache. Browser verification opens it instead of starting a dev server.
+
+## Browser verification
+
+`quick-review` and the Review health step of both reports open the changed screens when the diff touches anything rendered, including CSS and HTML only changes. It uses the Claude in Chrome extension or the Playwright MCP server, whichever is available, and finds a URL in this order: `baseUrl` from the config, the `dev` script in `package.json`, or a static server for plain HTML and CSS. With no browser tool the step is skipped and the report says so. The Chrome extension's window resize can be ignored by the window manager; then responsive widths are reported as not verified.
 
 Reports are written to `.claude/reports/weekly/`, `.claude/reports/monthly/` and raw data to `.claude/reports/data/`. Add `.claude/reports/` to the project's `.gitignore`.
 

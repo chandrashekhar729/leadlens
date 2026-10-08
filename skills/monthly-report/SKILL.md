@@ -3,7 +3,7 @@ name: monthly-report
 description: Generate a monthly engineering report for the team. Delivery themes, per-person trends, recurring blockers and coaching signals, built from GitHub activity. Use when asked for a monthly report, month-end summary, or one-on-one prep.
 argument-hint: "[owner/repo] [github-login] [YYYY-MM]"
 disable-model-invocation: true
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-github-activity.sh *) Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/quick-checks.sh *) Bash(date *) Bash(git rev-list *) Bash(git diff *) Bash(npm *) Bash(pnpm *) Bash(yarn *) Bash(curl *) Bash(kill *) Read Write Grep Glob mcp__claude-in-chrome mcp__plugin_playwright_playwright
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-github-activity.sh *) Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/quick-checks.sh *) Bash(date *) Bash(git rev-list *) Bash(git diff *) Bash(npm *) Bash(pnpm *) Bash(yarn *) Bash(curl *) Bash(kill *) Bash(python3 -m http.server *) Read Write Grep Glob mcp__claude-in-chrome mcp__plugin_playwright_playwright
 ---
 
 # Monthly Team Report

@@ -3,7 +3,7 @@ name: weekly-report
 description: Generate a weekly engineering report for the team from GitHub activity. Delivered work, PRs, reviews, blockers and TL action items. Use when asked for a weekly team report, sprint summary, or what the team shipped this week.
 argument-hint: "[owner/repo] [github-login] [since YYYY-MM-DD] [until YYYY-MM-DD]"
 disable-model-invocation: true
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-github-activity.sh *) Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/quick-checks.sh *) Bash(date *) Bash(git merge-base *) Bash(git rev-list *) Bash(git diff *) Bash(npm *) Bash(pnpm *) Bash(yarn *) Bash(curl *) Bash(kill *) Read Write Grep Glob mcp__claude-in-chrome mcp__plugin_playwright_playwright
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-github-activity.sh *) Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/quick-checks.sh *) Bash(date *) Bash(git merge-base *) Bash(git rev-list *) Bash(git diff *) Bash(npm *) Bash(pnpm *) Bash(yarn *) Bash(curl *) Bash(kill *) Bash(python3 -m http.server *) Read Write Grep Glob mcp__claude-in-chrome mcp__plugin_playwright_playwright
 ---
 
 # Weekly Team Report

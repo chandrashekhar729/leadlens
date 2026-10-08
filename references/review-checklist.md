@@ -71,12 +71,23 @@ templates, pages/routes, styles, client-side state, or assets? If it's
 server-only, migrations, CI config or docs, skip the whole section and record
 "browser checks not applicable — no front-end changes".
 
-**Gate 2 — can the app run?** Find the dev command in `package.json`
-(`dev`, `start`, `serve`) and start it in the background. Give it a reasonable
-window to bind a port, then probe the URL once; do not poll in a sleep loop.
-If it fails to start, can't install deps, needs secrets or a database you
-don't have, or the port is taken, record "browser checks skipped — <reason, with
-the error line>" and continue with static findings only.
+**Gate 2 — can the app run?** Find a URL to open, trying these in order and
+stopping at the first that works:
+
+1. A configured URL: `baseUrl` in `.claude/team-report.json`, or a local URL
+   the project's `CLAUDE.md` or README names. Probe it once with curl; if it
+   answers, use it and start nothing. This covers apps already served by
+   Apache or nginx on this machine.
+2. The dev command in `package.json` (`dev`, `start`, `serve`). Start it in
+   the background, give it a reasonable window to bind a port, then probe the
+   URL once; do not poll in a sleep loop.
+3. For plain HTML and CSS with no dev command, serve the project folder with
+   a static server on a free port, for example `python3 -m http.server`, and
+   open the changed pages by path.
+
+If none works, can't install deps, needs secrets or a database you don't
+have, or the port is taken, record "browser checks skipped — <reason, with the
+error line>" and continue with static findings only.
 
 **Gate 3 — is there a browser?** If no browser tooling is available in this
 session, record "browser checks skipped — no browser tooling" and continue.
@@ -87,7 +98,13 @@ allows, skipping individual checks that aren't possible and noting which ones
 you skipped. Prefer a batch browser call where one exists so each route costs
 few steps.
 
-- Screenshots at 1440 / 768 / 390 widths.
+- Screenshots at 1440 / 768 / 390 widths. The Chrome extension's window
+  resize may be ignored by the window manager; check the screenshot's
+  reported width, and if it did not change use Playwright's `browser_resize`
+  or note "responsive widths not verified".
+- For a CSS or HTML only diff, also screenshot the same route on the base
+  branch and compare side by side; a styling regression is rarely visible in
+  one screenshot alone.
 - Console errors and warnings; failed network requests.
 - The primary interaction the diff touches — submit, open, toggle, paginate.
 - Tab through: everything interactive reachable, focus visible, no trap, focus

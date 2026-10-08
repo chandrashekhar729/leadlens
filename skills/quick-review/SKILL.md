@@ -5,7 +5,7 @@ argument-hint: "[base-ref] [--fast]"
 arguments: base
 context: fork
 effort: medium
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/quick-checks.sh *) Bash(git diff *) Bash(git log *) Bash(git status *) Bash(npm *) Bash(pnpm *) Bash(yarn *) Bash(curl *) Bash(kill *) Read Grep Glob mcp__claude-in-chrome mcp__plugin_playwright_playwright
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/quick-checks.sh *) Bash(git diff *) Bash(git log *) Bash(git status *) Bash(npm *) Bash(pnpm *) Bash(yarn *) Bash(curl *) Bash(kill *) Bash(python3 -m http.server *) Read Grep Glob mcp__claude-in-chrome mcp__plugin_playwright_playwright
 ---
 
 # Quick Review
