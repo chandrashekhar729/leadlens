@@ -1,0 +1,16 @@
+{
+  "name": "leadlens",
+  "owner": {
+    "name": "Chandrashekhar Singh Rajawat"
+  },
+  "metadata": {
+    "description": "LeadLens: a TL's lens for reviewing code, architecture and implementation."
+  },
+  "plugins": [
+    {
+      "name": "leadlens",
+      "source": "./",
+      "description": "Weekly and monthly engineering reports from GitHub, a fast pre-merge review skill, and a secrets-blocking hook, for Team Leads and PMs."
+    }
+  ]
+}

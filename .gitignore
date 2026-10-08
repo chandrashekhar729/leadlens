@@ -1,0 +1,7 @@
+node_modules/
+*.log
+.DS_Store
+# Reports and collected data are generated per project, never committed with the plugin.
+.claude/reports/
+# Written by Claude Code each time it loads the plugin.
+.claude-plugin/types/

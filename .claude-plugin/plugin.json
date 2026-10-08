@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "leadlens",
+  "displayName": "LeadLens",
+  "version": "0.1.0",
+  "description": "LeadLens: a TL's lens for reviewing code, architecture and implementation. Weekly and monthly engineering reports from GitHub commits, PRs, reviews and issues, a fast pre-merge review pass (guidelines, UI/UX, accessibility, defensive security), and a hook that blocks hardcoded secrets.",
+  "author": {
+    "name": "Chandrashekhar Singh Rajawat"
+  },
+  "license": "MIT",
+  "keywords": [
+    "team-lead",
+    "code-review",
+    "architecture",
+    "weekly-report",
+    "monthly-report",
+    "github",
+    "security",
+    "accessibility",
+    "hooks",
+    "claude-code"
+  ]
+}

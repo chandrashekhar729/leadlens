@@ -1,0 +1,70 @@
+# Copy to .github/workflows/weekly-report.yml in the repo you want reported on.
+# For a monthly run, copy again with cron "0 4 1 * *" and command /leadlens:monthly-report.
+name: Weekly engineering report
+
+on:
+  schedule:
+    # 03:45 UTC = 09:15 IST Monday. GitHub cron is UTC only.
+    - cron: "45 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Start date (YYYY-MM-DD)"
+        required: false
+      until:
+        description: "End date (YYYY-MM-DD)"
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Claude Code and the LeadLens plugin
+        run: |
+          npm install --loglevel=warn --no-fund --no-audit -g @anthropic-ai/claude-code
+          # Replace with your marketplace repo (owner/repo on GitHub) or a local path.
+          claude plugin marketplace add "${{ vars.LEADLENS_MARKETPLACE }}"
+          claude plugin install leadlens@leadlens
+
+      - name: Resolve week
+        id: week
+        run: |
+          if [ -n "${{ inputs.since }}" ]; then
+            echo "since=${{ inputs.since }}" >> "$GITHUB_OUTPUT"
+            echo "until=${{ inputs.until }}" >> "$GITHUB_OUTPUT"
+          else
+            until=$(date -u -d 'last sunday' +%F)
+            since=$(date -u -d "$until -6 days" +%F)
+            echo "since=$since" >> "$GITHUB_OUTPUT"
+            echo "until=$until" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate report
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          claude -p "/leadlens:weekly-report ${{ steps.week.outputs.since }} ${{ steps.week.outputs.until }}" \
+            --allowedTools "Bash Read Write" \
+            | tee report.md
+
+      - name: Publish to job summary
+        run: cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weekly-report-${{ steps.week.outputs.since }}
+          path: |
+            report.md
+            .claude/reports/
