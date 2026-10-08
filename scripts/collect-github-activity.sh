@@ -88,13 +88,17 @@ for repo in "${REPO_LIST[@]}"; do
   issues=$(jq -c '[.[] | {number, title, state, createdAt, closedAt, url,
       author: (.author.login // null), assignees: [.assignees[]?.login], labels: [.labels[]?.name]}]' <<< "$issues")
 
+  all_commits=$(gh api -X GET "repos/${repo}/commits" \
+        -f since="${SINCE}T00:00:00Z" -f until="${UNTIL}T23:59:59Z" -f per_page=100 --paginate \
+        --jq '.[]' 2>/dev/null | jq -cs '.' || echo '[]')
+  [[ -n "$all_commits" ]] || all_commits='[]'
+
   commits="{}"; reviews="{}"
   for m in "${MEMBER_LIST[@]}"; do
     [[ -n "$m" ]] || continue
-    c=$(gh api -X GET "repos/${repo}/commits" \
-          -f since="${SINCE}T00:00:00Z" -f until="${UNTIL}T23:59:59Z" -f author="$m" -f per_page=100 --paginate \
-          --jq '.[] | {sha: .sha[0:7], message: (.commit.message | split("\n")[0]), date: .commit.author.date, url: .html_url}' \
-        2>/dev/null | jq -cs '.' || echo '[]')
+    # Filter locally: the API's author= parameter misses commits on fresh repos.
+    c=$(jq -c --arg m "$m" '[.[] | select((.author.login // "") == $m)
+          | {sha: .sha[0:7], message: (.commit.message | split("\n")[0]), date: .commit.author.date, url: .html_url}]' <<< "$all_commits")
     commits=$(jq -c --arg m "$m" --argjson c "${c:-[]}" '. + {($m): $c}' <<< "$commits")
 
     r=$(gh api -X GET search/issues \
