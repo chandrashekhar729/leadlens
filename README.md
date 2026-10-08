@@ -4,9 +4,9 @@ A TL's lens for reviewing code, architecture and implementation. A Claude Code p
 
 | Command | What it does |
 |---|---|
-| `/leadlens:weekly-report [owner/repo] [github-login] [since] [until]` | Weekly report: delivered work, PRs, reviews, blockers, TL action items. Defaults to the last 7 days. Give a repo to run from anywhere without a config file, and a GitHub login for a one-person report. |
-| `/leadlens:monthly-report [owner/repo] [github-login] [YYYY-MM]` | Monthly report: delivery themes, trend versus the previous month, recurring blockers, coaching signals. Add a GitHub login for a one-person report, useful for one-on-one prep. |
-| `/leadlens:quick-review [base-ref] [--fast]` | Review of changed files against UI/UX, accessibility and defensive security checklists, plus prettier, eslint, typecheck and tests. |
+| `/leadlens:weekly-report [owner/repo] [github-login] [since] [until]` | Weekly report: delivered work, PRs, reviews, blockers, TL action items. Defaults to the last 7 days. Give a repo to run from anywhere without a config file, and a GitHub login for a one-person report. Review health follows the same checklist as `quick-review`, aggregate only. |
+| `/leadlens:monthly-report [owner/repo] [github-login] [YYYY-MM]` | Monthly report: delivery themes, trend versus the previous month, recurring blockers, coaching signals. Add a GitHub login for a one-person report, useful for one-on-one prep. Review health follows the same checklist as `quick-review`, aggregate only. |
+| `/leadlens:quick-review [base-ref] [--fast]` | Review of changed files against project guidelines, styling tokens, UI/UX, accessibility and defensive security checklists, plus prettier, eslint, typecheck and tests. Changed screens are also verified in the browser when the diff touches front-end files and a dev server and browser tool are available. |
 
 The hook runs on every `Edit` and `Write` and blocks the write when the new text contains a hardcoded credential, a cloud or payment key, or a private key block. Everything else (XSS, a11y, debug statements) is reported by `quick-review`, never blocked.
 
@@ -19,7 +19,7 @@ The hook runs on every `Edit` and `Write` and blocks the write when the new text
 
 ## Install
 
-Requires `gh` (authenticated with `gh auth login`) and `jq`. `quick-review` uses the project's own prettier, eslint, tsc and test script when present.
+Requires `gh` (authenticated with `gh auth login`) and `jq`. `quick-review` uses the project's own prettier, eslint, tsc and test script when present. Browser verification in `quick-review` is best effort and needs a browser MCP tool (Claude in Chrome or Playwright); it is skipped otherwise.
 
 From a GitHub marketplace repo:
 
@@ -70,6 +70,7 @@ leadlens/
 ├── references/
 │   ├── analysis-rules.md
 │   ├── report-format.md
+│   ├── review-checklist.md
 │   ├── ui-guidelines.md
 │   └── security-review.md
 ├── scripts/

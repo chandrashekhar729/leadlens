@@ -3,7 +3,7 @@ name: weekly-report
 description: Generate a weekly engineering report for the team from GitHub activity. Delivered work, PRs, reviews, blockers and TL action items. Use when asked for a weekly team report, sprint summary, or what the team shipped this week.
 argument-hint: "[owner/repo] [github-login] [since YYYY-MM-DD] [until YYYY-MM-DD]"
 disable-model-invocation: true
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-github-activity.sh *) Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/quick-checks.sh *) Bash(date *) Bash(git merge-base *) Bash(git rev-list *) Read Write
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-github-activity.sh *) Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/quick-checks.sh *) Bash(date *) Bash(git merge-base *) Bash(git rev-list *) Bash(git diff *) Bash(npm *) Bash(pnpm *) Bash(yarn *) Bash(curl *) Bash(kill *) Read Write Grep Glob mcp__claude-in-chrome mcp__plugin_playwright_playwright
 ---
 
 # Weekly Team Report
@@ -38,15 +38,31 @@ Read the JSON file it wrote. If it is large, read it in sections.
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/analysis-rules.md` and apply it to the collected JSON.
 
-## 3b. Review health (optional, aggregate only)
+## 3b. Review health (team report only, aggregate only)
 
-Only when the current directory is a git checkout of one of the report's repos: find the first commit on or after SINCE with `git rev-list -1 --before=<SINCE> HEAD`, then run once:
+Skip this step silently, including the browser pass, when this is a person
+report or when the current directory is not a git checkout of one of the
+report's repos.
+
+Otherwise find the base commit with `git rev-list -1 --before=<SINCE> HEAD`
+and run once:
 
 ```
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/quick-checks.sh --base <that commit> --fast
 ```
 
-Report counts and themes only, under **Review health** in the Team view. Do not review individual PRs here and do not attribute findings to people. A recurring category is a team gap to raise as a convention to agree on, not as someone's mistake. Skip this step silently if the directory is not a matching checkout.
+Then read `${CLAUDE_PLUGIN_ROOT}/references/review-checklist.md` and apply all
+six sections, in report mode, to `git diff <base>...HEAD`: project rules,
+styling tokens, code and architecture, defensive security, accessibility, and
+the gated browser verification of changed screens. If more than 40 files
+changed, review the 40 with the highest churn and say so under Evidence gaps.
+
+Report counts and themes only, one line per dimension plus the `Browser
+checks` line, under **Review health** in the Team view. Do not review
+individual PRs here and do not attribute findings to people. A recurring
+category is a team gap to raise as a convention to agree on, not as someone's
+mistake. A finding feeds Review health and TL action items, never a merge
+decision.
 
 ## 4. Write
 
@@ -64,4 +80,4 @@ These apply to every turn of this task, not only the first:
 - Where evidence is missing, write "Not enough GitHub evidence" instead of inferring.
 - Keep facts and interpretation in separate sections.
 - Report on delivery, blockers and support needed, not on activity levels.
-- Do not modify application code or any file outside `.claude/reports/`.
+- Do not modify application code or any file outside `.claude/reports/`. A dev server started for Review health may write its own caches; screenshots and logs go to the session scratchpad, never the repo. Stop that server before writing the report.

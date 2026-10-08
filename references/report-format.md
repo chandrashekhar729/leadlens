@@ -44,7 +44,14 @@ Feature <n> · Bug fix <n> · Refactor <n> · Testing <n> · Review <n>
 
 **Recurring blockers**: anything that showed up more than once.
 
-**Review health** (only when quick-checks ran): pattern findings by category with the top three files, and which categories recurred across PRs. Never attributed to a person.
+**Review health** (only when the review checklist ran): one line per dimension with counts and the top three files, then the browser line. Never attributed to a person.
+- Guidelines: <n> findings · <files>
+- Styling tokens: <n> · <files>
+- Code and architecture: <n> · <files>
+- Security: <n> · <files>
+- Accessibility: <n> · <files>
+- Browser checks: <routes verified | not applicable | skipped: reason>
+- Recurred across PRs: <categories>
 
 **Evidence gaps**: what the report could not establish from GitHub.
 
