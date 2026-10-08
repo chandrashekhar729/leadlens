@@ -4,13 +4,16 @@
 #   --hook            PreToolUse hook: read tool JSON on stdin, scan the content about
 #                     to be written (Write.content / Edit.new_string), exit 2 on a secret.
 #   --files a b c     scan the given files, print JSON findings to stdout.
+#   --diff            read a unified diff on stdin, scan only the added lines, print JSON
+#                     findings with the file and its line number after the change.
 set -uo pipefail
 
 MODE="files"; FILES=()
 case "${1:-}" in
   --hook)  MODE="hook"; shift ;;
   --files) shift; FILES=("$@") ;;
-  *) echo "usage: scan-patterns.sh --hook | --files <paths...>" >&2; exit 1 ;;
+  --diff)  MODE="diff"; shift ;;
+  *) echo "usage: scan-patterns.sh --hook | --files <paths...> | --diff" >&2; exit 1 ;;
 esac
 
 # critical|category|label|regex   (PCRE, used with grep -P)
@@ -55,6 +58,36 @@ if [[ "$MODE" == "hook" ]]; then
     } >&2
     exit 2
   done
+  exit 0
+fi
+
+if [[ "$MODE" == "diff" ]]; then
+  # Added lines as "file<TAB>new-line-number<TAB>text", tracking hunk headers.
+  tsv=$(mktemp); txt=$(mktemp)
+  awk '
+    /^diff --git/ { file=""; inhunk=0; next }
+    /^\+\+\+ /   { file=substr($0,5); sub(/^b\//,"",file); if (file=="/dev/null") file=""; next }
+    /^@@/        { s=$0; sub(/^@@ -[0-9,]+ \+/,"",s); sub(/[ ,].*/,"",s); ln=s+0; inhunk=1; next }
+    inhunk && /^\+/ { if (file!="") print file "\t" ln "\t" substr($0,2); ln++; next }
+    inhunk && /^ /   { ln++; next }
+  ' > "$tsv"
+  cut -f3- "$tsv" > "$txt"
+  findings="[]"; critical=0
+  for rule in "${RULES[@]}"; do
+    IFS='|' read -r crit cat label regex <<< "$rule"
+    rows=$($GREP -e "$regex" "$txt" 2>/dev/null | cut -d: -f1 | head -20 || true)
+    [[ -n "$rows" ]] || continue
+    for r in $rows; do
+      IFS=$'\t' read -r f ln _ < <(sed -n "${r}p" "$tsv")
+      [[ "$f" =~ $SKIP ]] && continue
+      [[ "$crit" == "yes" ]] && critical=1
+      findings=$(jq -c --arg f "$f" --arg ln "$ln" --arg c "$cat" --arg l "$label" --arg crit "$crit" \
+        '. + [{file:$f, line:($ln|tonumber? // null), category:$c, label:$l, critical:($crit=="yes")}]' <<< "$findings")
+    done
+  done
+  rm -f "$tsv" "$txt"
+  jq -n --argjson f "$findings" --argjson c "$critical" \
+    '{critical_found: ($c==1), count: ($f|length), findings: $f}'
   exit 0
 fi
 
