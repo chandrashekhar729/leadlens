@@ -1,7 +1,7 @@
 ---
 name: monthly-report
 description: Generate a monthly engineering report for the team. Delivery themes, per-person trends, recurring blockers and coaching signals, built from GitHub activity. Use when asked for a monthly report, month-end summary, or one-on-one prep.
-argument-hint: "[YYYY-MM] [github-login]"
+argument-hint: "[owner/repo] [github-login] [YYYY-MM]"
 disable-model-invocation: true
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-github-activity.sh *) Bash(date *) Read Write
 ---
@@ -12,6 +12,7 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-github-activity.s
 
 `$ARGUMENTS` holds zero or more space-separated tokens, in any order:
 
+- A token containing `/` is a repository, `owner/repo`. A GitHub URL is the same thing: strip the host and the `.git`. Several repo tokens are allowed.
 - A token matching `YYYY-MM` is the month.
 - Any other token is a GitHub login: this is a **person report** for that one member. Strip a leading `@` if present.
 
@@ -25,7 +26,7 @@ Run the collector twice, current month then previous month:
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-github-activity.sh --since <FIRST> --until <LAST> --out .claude/reports/data/monthly-<YYYY-MM>.json
 ```
 
-For a person report add `--members <login>` to both runs and name the data files `monthly-<YYYY-MM>-<login>.json`. The login must be the GitHub username as listed in `members` of `.claude/team-report.json`. If the collector returns no activity for it, say so and stop; do not fall back to the whole team.
+If a repo was given add `--repos <owner/repo>` to both runs. For a person report add `--members <login>` to both runs and name the data files `monthly-<YYYY-MM>-<login>.json`. The login must be the GitHub username as listed in `members` of `.claude/team-report.json`. If the collector returns no activity for it, say so and stop; do not fall back to the whole team.
 
 On a non-zero exit, show the error, give the one-line fix, and stop. Do not write a report from partial data. Read the JSON files in sections if they are large.
 

@@ -1,7 +1,7 @@
 ---
 name: weekly-report
 description: Generate a weekly engineering report for the team from GitHub activity. Delivered work, PRs, reviews, blockers and TL action items. Use when asked for a weekly team report, sprint summary, or what the team shipped this week.
-argument-hint: "[since YYYY-MM-DD] [until YYYY-MM-DD] [github-login]"
+argument-hint: "[owner/repo] [github-login] [since YYYY-MM-DD] [until YYYY-MM-DD]"
 disable-model-invocation: true
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-github-activity.sh *) Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/quick-checks.sh *) Bash(date *) Bash(git merge-base *) Bash(git rev-list *) Read Write
 ---
@@ -12,10 +12,11 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-github-activity.s
 
 `$ARGUMENTS` holds zero or more space-separated tokens, in any order:
 
+- A token containing `/` is a repository, `owner/repo`. A GitHub URL such as `https://github.com/owner/repo.git` is the same thing: strip the host and the `.git`. Several repo tokens are allowed.
 - Tokens matching `YYYY-MM-DD` are dates. The first is SINCE, the second is UNTIL. If only one is given, treat it as SINCE and use SINCE plus six days as UNTIL.
 - Any other token is a GitHub login: this is a **person report** for that one member. Strip a leading `@` if present.
 
-With no dates, use the previous full week, Monday to Sunday, relative to today (run `date` to get today). State the resolved range, and the person if any, in one line before continuing.
+With no dates, use the last 7 days: UNTIL is today and SINCE is six days earlier (run `date +%F` to get today). State the resolved range, the repo if given, and the person if any, in one line before continuing.
 
 ## 2. Collect
 
@@ -24,6 +25,8 @@ Run exactly:
 ```
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-github-activity.sh --since <SINCE> --until <UNTIL> --out .claude/reports/data/weekly-<SINCE>.json
 ```
+
+If a repo was given add `--repos <owner/repo>` (comma-separated for several). Without it the collector uses `repos` from `.claude/team-report.json`, or the repo of the current directory.
 
 For a person report add `--members <login>` and name the data file `weekly-<SINCE>-<login>.json`. The login must be the GitHub username as listed in `members` of `.claude/team-report.json`, not a display name. If the collector returns no activity for it, say so and stop; do not fall back to the whole team.
 
