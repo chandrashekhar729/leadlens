@@ -1,6 +1,6 @@
 ---
 name: quick-review
-description: Pre-merge review of a branch or PR — project guidelines, styling tokens, UI/UX, accessibility, defensive security, plus best-effort browser verification of changed screens. Use when asked to review a change, check a PR before merge, or sanity-check work in progress.
+description: Fast pre-merge review of a branch or PR — project guidelines, styling tokens, UI/UX, accessibility, defensive security, plus best-effort browser verification of changed screens. Use when asked to review a change, check a PR before merge, or sanity-check work in progress. For a full evidence-based audit with gates, a blast-radius trace and a ship verdict, use audit instead.
 argument-hint: "[base-ref] [--fast]"
 arguments: base
 context: fork
@@ -12,7 +12,8 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/quick-checks.sh *) Bash(g
 
 Review the current diff the way a tech lead would before approving a merge.
 Review only what changed; do not read or comment on untouched files.
-Report findings; do not fix anything unless asked.
+Report findings; do not fix anything unless asked. This is the fast pass; a
+request for an "audit", a "Lead Lens" or a ship verdict is the `audit` skill.
 
 ## 0. Run the checks
 
@@ -73,8 +74,10 @@ Not checked
 <what you did not check and why>
 ```
 
-Order findings by severity, not by file. Every item gets `file:line` and a
-concrete fix; no finding without a location. Cite the guideline or token name
+Order findings by severity, not by file. Every item gets `file:line`, a
+concrete fix and an *Introduced* or *Pre-existing* tag; no finding without a
+location. "Verified working" lists only what you observed or ran, with the
+evidence; a check you did not run belongs under "Not checked". Cite the guideline or token name
 when one backs the finding. Suggest the fix in one line; do not rewrite the
 file. Blocking means it breaks users, leaks data, or fails a stated project
 rule; style preference is never blocking. Keep the whole report under roughly

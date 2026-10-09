@@ -1,0 +1,40 @@
+<!--
+Paste into the CLAUDE.md of a project that has the LeadLens plugin installed.
+It makes the Lead Lens audit run as the last step of every task (Gate mode).
+Adjust the Stack line to your project; drop the table rows if your CLAUDE.md
+has no task classifier or module index.
+-->
+
+**Stack:** React · TypeScript · Vite · TanStack Query · React Hook Form · Zod ·
+Tailwind CSS · SCSS Modules · ShadCN UI · Radix UI
+
+## Lead Lens: foolproof audit gate
+
+Design review challenges the **design**. The **Lead Lens** audits what was
+**actually built**, with evidence, before anything is called done.
+
+- **Gate mode (automatic):** the last step of every task is
+  `/leadlens:audit --fix`. It re-reads the real diff, runs every gate
+  (typecheck · lint · stylelint · tests · build), fixes all Blockers and Majors
+  and re-audits, at most three loops.
+- **Audit mode (on request):** "audit", "review" or "Lead Lens" plus a PR,
+  branch, file or feature runs `/leadlens:audit <target>`. Report only, no
+  edits unless told.
+- **No evidence = UNVERIFIED, never PASS.**
+- **Done = verdict SHIP or SHIP WITH NOTES, with the Lead Lens report in the
+  final message.**
+
+Modes, checklist, severities, verdict rules and report format live in the
+plugin: `references/audit.md` under the LeadLens plugin root.
+
+<!-- Task loop: make this the final step -->
+8. **Run the Lead Lens** (`/leadlens:audit --fix`): self-review, simplify,
+   verify, regression-test. Not done until the verdict is SHIP or SHIP WITH
+   NOTES.
+
+<!-- Task classifier rows -->
+| **Styling / SCSS** | LeadLens `references/styling-tailwind-scss.md` | reuse tokens and mixins → implement → `/leadlens:audit --fix` |
+| **Audit / PR review** | `/leadlens:audit <target>` | Lead Lens (Audit mode) → report |
+
+<!-- Module index row -->
+| `/leadlens:audit` | **Lead Lens**: evidence-based audit, severities, ship verdict |

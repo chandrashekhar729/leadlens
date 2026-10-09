@@ -1,13 +1,14 @@
 # LeadLens
 
-A TL's lens for reviewing code, architecture and implementation. A Claude Code plugin for Team Leads and PMs. It turns GitHub activity into weekly and monthly engineering reports, adds a fast pre-merge review skill, audits one author's commits across every branch, and blocks hardcoded secrets before they are written.
+A TL's lens for reviewing code, architecture and implementation. A Claude Code plugin for Team Leads and PMs. It turns GitHub activity into weekly and monthly engineering reports, adds a fast pre-merge review skill and an evidence-based Lead Lens audit with a ship verdict, audits one author's commits across every branch, and blocks hardcoded secrets before they are written.
 
 | Command | What it does |
 |---|---|
 | `/leadlens:weekly-report [owner/repo] [github-login] [since] [until]` | Weekly report: delivered work, PRs, reviews, blockers, TL action items. Defaults to the last 7 days. Give a repo to run from anywhere without a config file, and a GitHub login for a one-person report. Review health follows the same checklist as `quick-review`, aggregate only. |
 | `/leadlens:monthly-report [owner/repo] [github-login] [YYYY-MM]` | Monthly report: delivery themes, trend versus the previous month, recurring blockers, coaching signals. Add a GitHub login for a one-person report, useful for one-on-one prep. Review health follows the same checklist as `quick-review`, aggregate only. |
-| `/leadlens:author-audit <author> [alias ...] [since YYYY-MM-DD] [--repo path\|url] [--default branch]` | Full-repository audit of one author's commits on every local and remote branch, never only the checked-out one. Fetches all refs, de-duplicates commits across branches, marks what is merged into the default branch and what is stranded, reads every diff, and writes a consolidated report: branch coverage, commit inventory, security findings by severity, code-standard findings, recurring patterns, prioritised actions, and an appendix naming anything that could not be scanned. |
-| `/leadlens:quick-review [base-ref] [--fast]` | Review of changed files against project guidelines, styling tokens, UI/UX, accessibility and defensive security checklists, plus prettier, eslint, typecheck and tests. Changed screens are also verified in the browser when the diff touches front-end files and a dev server and browser tool are available. |
+| `/leadlens:author-audit <author> [alias ...] [7d\|15d\|30d \| since YYYY-MM-DD] [--repo path\|url] [--default branch]` | Full-repository audit of one author's commits on every local and remote branch, never only the checked-out one. Defaults to all history; `7d`, `15d`, `30d` (any `Nd`) limits it to the last N days. Fetches all refs, de-duplicates commits across branches, marks what is merged into the default branch and what is stranded, reads every diff, and writes a consolidated report: branch coverage, commit inventory, security findings by severity, code-standard findings, recurring patterns, prioritised actions, and an appendix naming anything that could not be scanned. |
+| `/leadlens:quick-review [base-ref] [--fast]` | Fast review of changed files against project guidelines, styling tokens, UI/UX, accessibility and defensive security checklists, plus prettier, eslint, typecheck and tests. Changed screens are also verified in the browser when the diff touches front-end files and a dev server and browser tool are available. |
+| `/leadlens:audit [pr\|branch\|base-ref\|path\|feature] [--fix] [--full] [--fast]` | Lead Lens: evidence-based audit of one change with a ship verdict. Runs the real gates (typecheck, lint, stylelint, tests, build), re-reads the whole diff, traces the blast radius of every changed export, works a break-it list and a twelve-section checklist, and reports SHIP, SHIP WITH NOTES, FIX FIRST or NEEDS INPUT. Every pass cites its evidence; anything unchecked is UNVERIFIED, never a pass. Report only by default; `--fix` fixes Blockers and Majors and re-audits, at most three loops. |
 
 The hook runs on every `Edit` and `Write` and blocks the write when the new text contains a hardcoded credential, a cloud or payment key, or a private key block. Everything else (XSS, a11y, debug statements) is reported by `quick-review`, never blocked.
 
@@ -16,7 +17,7 @@ The hook runs on every `Edit` and `Write` and blocks the write when the new text
 - Delivery over activity. The reports never rank people by commit count. Commits are correlated with PRs, reviews and issues.
 - Evidence on every claim. Each delivered item carries a PR, issue or commit reference. Missing evidence is stated as "Not enough GitHub evidence".
 - Situations, not people. Risk flags name the PR and the wait, not the developer.
-- Nothing runs on its own. All four skills are user-invoked. Claude never generates a report unless you ask.
+- Nothing runs on its own. The report skills and `author-audit` are user-invoked, and Claude never generates a report unless you ask. `quick-review` and `audit` can also be invoked by Claude when a request or a project `CLAUDE.md` asks for them; that is how the Lead Lens gate runs as the last step of a task (see below).
 
 ## Install
 
@@ -60,7 +61,13 @@ Members are GitHub logins. Without this file the collector uses the current repo
 
 ## Author audit
 
-`author-audit` answers "what did this person commit, anywhere in this repository, and is it safe?". Give one or more aliases (name, login, email), optionally a start date, and optionally a repository path or URL; a URL is mirror-cloned under `.claude/reports/data/` so the checkout you are in is never touched. The collector fetches all refs, matches by author and by committer across every branch, tag and stash, and flags commits where the two differ. The review reads each diff, not the messages; secrets are cited by location and never reproduced; and anything unread, unreadable or unfetched is listed in the report's appendix. For large histories the review runs in rounds and rewrites the report after each one, so the file on disk is always complete about its own gaps. Reports go to `.claude/reports/audit/`.
+`author-audit` answers "what did this person commit, anywhere in this repository, and is it safe?". Give one or more aliases (name, login, email), optionally a window as a day count (`7d`, `15d`, `30d`) or a start date (`YYYY-MM-DD`), and optionally a repository path or URL; a URL is mirror-cloned under `.claude/reports/data/` so the checkout you are in is never touched. The collector fetches all refs, matches by author and by committer across every branch, tag and stash, and flags commits where the two differ. The review reads each diff, not the messages; secrets are cited by location and never reproduced; and anything unread, unreadable or unfetched is listed in the report's appendix. For large histories the review runs in rounds and rewrites the report after each one, so the file on disk is always complete about its own gaps. Reports go to `.claude/reports/audit/`.
+
+## Lead Lens audit
+
+`audit` answers "is this change shippable, and what is the evidence?". Point it at a PR number, a branch, a base ref, a path or a feature name, or at nothing to audit the working tree. It runs the project's own gates through `scripts/quick-checks.sh --build`, re-reads the diff including untracked files, searches for every consumer of what changed, and works through the rubric in `references/audit.md`: parity, backend contract, reuse, TypeScript, server state, forms, design system, styling, accessibility, performance, security, tests. Library-specific sections apply when the project uses that library. Findings carry a severity, an *Introduced* or *Pre-existing* tag, `file:line` and a one-line fix. The verdict is SHIP, SHIP WITH NOTES, FIX FIRST or NEEDS INPUT; a gate that did not run is shown as not run and blocks SHIP for the files it would have covered.
+
+With `--fix` it becomes a gate: it fixes the Blockers and Majors it introduced, re-runs the gates and re-audits, up to three loops, then reports whatever is left. To make that the last step of every task in a project, paste `templates/CLAUDE.md.snippet` into that project's `CLAUDE.md` and adjust the Stack line. `references/styling-tailwind-scss.md` holds the Tailwind and SCSS module rules both `audit` and `quick-review` apply when a project uses them.
 
 ## Browser verification
 
@@ -83,14 +90,17 @@ leadlens/
 │   ├── weekly-report/SKILL.md
 │   ├── monthly-report/SKILL.md
 │   ├── quick-review/SKILL.md
+│   ├── audit/SKILL.md
 │   └── author-audit/SKILL.md
 ├── references/
 │   ├── analysis-rules.md
+│   ├── audit.md
 │   ├── author-audit.md
 │   ├── report-format.md
 │   ├── review-checklist.md
-│   ├── ui-guidelines.md
-│   └── security-review.md
+│   ├── security-review.md
+│   ├── styling-tailwind-scss.md
+│   └── ui-guidelines.md
 ├── scripts/
 │   ├── collect-author-commits.sh
 │   ├── collect-github-activity.sh
@@ -98,6 +108,7 @@ leadlens/
 │   └── scan-patterns.sh
 ├── hooks/hooks.json
 └── templates/
+    ├── CLAUDE.md.snippet
     ├── team-report.json
     └── weekly-report.yml
 ```

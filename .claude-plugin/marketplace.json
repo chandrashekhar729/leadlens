@@ -10,7 +10,7 @@
     {
       "name": "leadlens",
       "source": "./",
-      "description": "Weekly and monthly engineering reports from GitHub, a fast pre-merge review skill, a multi-branch audit of one author's commits, and a secrets-blocking hook, for Team Leads and PMs."
+      "description": "Weekly and monthly engineering reports from GitHub, a fast pre-merge review skill, a Lead Lens audit with gates and a ship verdict, a multi-branch audit of one author's commits, and a secrets-blocking hook, for Team Leads and PMs."
     }
   ]
 }

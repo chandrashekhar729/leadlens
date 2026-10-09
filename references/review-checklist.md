@@ -1,8 +1,27 @@
 # Review checklist
 
-Shared by `quick-review`, `weekly-report` and `monthly-report`. Work through the
-sections in order. In a **report** the findings are aggregate and never
-attributed to a person; in a **quick review** every finding carries `file:line`.
+Shared by `quick-review`, `audit`, `weekly-report` and `monthly-report`. Work
+through the sections in order. In a **report** the findings are aggregate and
+never attributed to a person; in a **quick review** or an **audit** every
+finding carries `file:line`.
+
+Three rules apply in every mode:
+
+- **Evidence or UNVERIFIED.** A check passes only with a citation: `file:line`,
+  a command and its result, a test name, or the search you ran. Without one it
+  is "not verified", never a pass.
+- **Introduced or pre-existing.** Tag each finding by whether the diff created
+  it or only exposed it. Report both; fix neither silently.
+- **Blast radius.** In a quick review or an audit, for every changed export,
+  type, schema, hook, query key, style partial or token, search for its
+  consumers and check them too. In report mode only note a changed export
+  that obviously has many consumers; the step budget there does not cover a
+  consumer trace.
+
+Severity scales: `quick-review` uses BLOCKERS / SHOULD FIX / NITS and
+approve / changes requested; `audit` uses Blocker / Major / Minor / Nit and
+SHIP / FIX FIRST. Blocker maps to BLOCKERS, Major and Minor to SHOULD FIX, Nit
+to NITS, FIX FIRST to changes requested.
 
 ## 1. Establish the rules before judging
 
@@ -24,7 +43,9 @@ written guidelines, say so explicitly and fall back to framework conventions.
 ## 2. Styling audit (SCSS / CSS variables / tokens)
 
 Detect the styling approach in use (SCSS, CSS custom properties, CSS modules,
-Tailwind, styled-components), then check the diff for:
+Tailwind, styled-components). When it is Tailwind, SCSS modules or both, also
+apply `${CLAUDE_PLUGIN_ROOT}/references/styling-tailwind-scss.md`. Then check
+the diff for:
 
 - **Hardcoded values that have a token.** Raw hex, rgb, px spacing, font sizes,
   z-index, breakpoints, shadows, radii, transition durations where a variable,
