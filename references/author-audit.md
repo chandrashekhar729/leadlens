@@ -47,7 +47,7 @@ Write the report exactly in this shape. Keep each table row to one line.
 
 - Author aliases: <list>
 - Repository: <path or URL>  ·  Default branch: <name>
-- Window: <all history | since YYYY-MM-DD>  ·  Generated: <YYYY-MM-DD>
+- Window: <all history | last N days (since YYYY-MM-DD) | since YYYY-MM-DD>  ·  Generated: <YYYY-MM-DD>
 - Branches scanned: <n> (<local> local, <remote> remote)  ·  Branches with this author's commits: <n>
 - Unique commits: <n>  ·  Merged into default: <n>  ·  Only on other branches: <n>  ·  Author ≠ committer: <n>
 - Files touched: <n>

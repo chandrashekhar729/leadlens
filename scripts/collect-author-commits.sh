@@ -5,17 +5,21 @@
 # branch switch: everything is read with git log / git show on the object store.
 #
 #   collect-author-commits.sh --author <name|email> [--author <alias>]... \
-#       [--since YYYY-MM-DD] [--default <branch>] [--repo <path|url>] \
+#       [--since YYYY-MM-DD | --days N] [--default <branch>] [--repo <path|url>] \
 #       [--stale-days 90] [--out <dir>]
+#
+# --days N (or Nd) is shorthand for --since <N days before today, at midnight>; the resolved date is
+# recorded in inventory.json as "since" and the count as "window_days".
 #
 # A URL repo is mirror-cloned under <out>/mirror and read from there.
 set -uo pipefail
 
-AUTHORS=(); SINCE=""; DEFAULT=""; REPO=""; STALE_DAYS=90; OUT=""
+AUTHORS=(); SINCE=""; DAYS=""; DEFAULT=""; REPO=""; STALE_DAYS=90; OUT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --author) AUTHORS+=("$2"); shift 2 ;;
     --since) SINCE="$2"; shift 2 ;;
+    --days) DAYS="$2"; shift 2 ;;
     --default) DEFAULT="$2"; shift 2 ;;
     --repo) REPO="$2"; shift 2 ;;
     --stale-days) STALE_DAYS="$2"; shift 2 ;;
@@ -23,8 +27,18 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown argument: $1" >&2; exit 1 ;;
   esac
 done
-[[ ${#AUTHORS[@]} -gt 0 ]] || { echo "usage: --author <name|email> [--author <alias>]... [--since YYYY-MM-DD] [--default <branch>] [--repo <path|url>] [--out <dir>]" >&2; exit 1; }
+[[ ${#AUTHORS[@]} -gt 0 ]] || { echo "usage: --author <name|email> [--author <alias>]... [--since YYYY-MM-DD | --days N] [--default <branch>] [--repo <path|url>] [--out <dir>]" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "missing dependency: jq" >&2; exit 1; }
+if [[ -n "$DAYS" ]]; then
+  DAYS="${DAYS%d}"   # accept 7 or 7d
+  [[ "$DAYS" =~ ^[0-9]+$ && "$DAYS" -gt 0 ]] || { echo "--days must be a positive whole number, got: $DAYS" >&2; exit 1; }
+  [[ -z "$SINCE" ]] || { echo "give either --since or --days, not both" >&2; exit 1; }
+  SINCE=$(date -d "$DAYS days ago" +%F 2>/dev/null || date -v-"${DAYS}"d +%F 2>/dev/null) \
+    || { echo "could not compute the date $DAYS days ago with this system's date command" >&2; exit 1; }
+fi
+if [[ -n "$SINCE" && ! "$SINCE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+  echo "--since must be YYYY-MM-DD, got: $SINCE" >&2; exit 1
+fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 START_DIR="$(pwd)"
 SLUG=$(printf '%s' "${AUTHORS[0]}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\+/-/g; s/^-//; s/-$//')
@@ -93,10 +107,11 @@ git for-each-ref --format='%(refname)|%(refname:short)|%(committerdate:iso8601-s
 # --- commits by author, then by committer ------------------------------------------
 AUTHOR_ARGS=(); COMMITTER_ARGS=()
 for a in "${AUTHORS[@]}"; do AUTHOR_ARGS+=("--author=$a"); COMMITTER_ARGS+=("--committer=$a"); done
-SINCE_ARGS=(); [[ -n "$SINCE" ]] && SINCE_ARGS=("--since=$SINCE")
+SINCE_ARGS=(); SINCE_SHOW=""   # bare date would mean "that day, at the current time", so anchor to midnight
+[[ -n "$SINCE" ]] && { SINCE_ARGS=("--since=$SINCE 00:00:00"); SINCE_SHOW="--since='$SINCE 00:00:00'"; }
 FMT='%H|%h|%an|%ae|%cn|%ce|%aI|%s'
-rec "git log --all -i --fixed-strings ${AUTHOR_ARGS[*]} ${SINCE_ARGS[*]} --pretty=format:'$FMT'"
-rec "git log --all -i --fixed-strings ${COMMITTER_ARGS[*]} ${SINCE_ARGS[*]} --pretty=format:'$FMT'"
+rec "git log --all -i --fixed-strings ${AUTHOR_ARGS[*]} $SINCE_SHOW --pretty=format:'$FMT'"
+rec "git log --all -i --fixed-strings ${COMMITTER_ARGS[*]} $SINCE_SHOW --pretty=format:'$FMT'"
 BY_AUTHOR=$(git log --all -i --fixed-strings "${AUTHOR_ARGS[@]}" "${SINCE_ARGS[@]}" --pretty=format:'%H')
 BY_COMMITTER=$(git log --all -i --fixed-strings "${COMMITTER_ARGS[@]}" "${SINCE_ARGS[@]}" --pretty=format:'%H')
 ALL_SHAS=$(printf '%s\n%s\n' "$BY_AUTHOR" "$BY_COMMITTER" | grep -v '^$' | sort -u)
@@ -141,7 +156,7 @@ for sha in $ALL_SHAS; do
 done
 
 # --- assemble -----------------------------------------------------------------------
-jq -n --arg repo "$REPO" --arg start "$START_DIR" --arg default "$DEFAULT_NAME" --arg since "$SINCE" \
+jq -n --arg repo "$REPO" --arg start "$START_DIR" --arg default "$DEFAULT_NAME" --arg since "$SINCE" --arg days "$DAYS" \
   --argjson fetched "$FETCHED" --arg fetch_error "$FETCH_ERROR" --argjson shallow "$SHALLOW" --argjson bare "$BARE" \
   --argjson stale "$STALE_DAYS" --arg out "$OUT" \
   --argjson authors "$(printf '%s\n' "${AUTHORS[@]}" | jq -R . | jq -s .)" \
@@ -149,6 +164,7 @@ jq -n --arg repo "$REPO" --arg start "$START_DIR" --arg default "$DEFAULT_NAME" 
   --slurpfile branches "$BRANCHES_ND" --slurpfile commits "$COMMITS_ND" --slurpfile unreadable "$UNREADABLE_ND" '
   ($commits | sort_by(.date) | reverse) as $c |
   {repo:$repo, run_from:$start, authors:$authors, since:(if $since=="" then "all" else $since end),
+   window_days:(if $days=="" then null else ($days|tonumber) end),
    default_branch:(if $default=="" then null else $default end),
    fetched:$fetched, fetch_error:(if $fetch_error=="" then null else $fetch_error end),
    shallow:$shallow, bare_mirror:$bare, stale_days:$stale, out_dir:$out,

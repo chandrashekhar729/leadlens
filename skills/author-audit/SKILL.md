@@ -1,7 +1,7 @@
 ---
 name: author-audit
 description: Full-repository audit of every commit by one author across ALL branches, local and remote, never only the checked-out one. Branch coverage, de-duplicated commit inventory, diff-level security and code-standards review, consolidated Markdown report. Use when asked to audit someone's commits, review everything a person pushed, or check an author's work across branches.
-argument-hint: "<author-or-email> [alias|email ...] [since YYYY-MM-DD] [--repo path|url] [--default branch] [--stale-days N]"
+argument-hint: "<author-or-email> [alias|email ...] [7d|15d|30d|Nd | since YYYY-MM-DD] [--repo path|url] [--default branch] [--stale-days N]"
 disable-model-invocation: true
 effort: high
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-author-commits.sh *) Bash(jq *) Bash(git show *) Bash(git log *) Bash(git branch *) Bash(git diff *) Bash(git for-each-ref *) Bash(date *) Read Write Grep Glob
@@ -19,18 +19,25 @@ switches branches: every commit is read from the object store with
 `$ARGUMENTS` holds space-separated tokens; a quoted string is one token.
 
 - `--repo <path|url>`, `--default <branch>`, `--stale-days <n>` take the next token.
-- A token matching `YYYY-MM-DD` is SINCE. Without one the window is all history.
+- A token matching `<N>d` (`7d`, `15d`, `30d`, any positive whole number) or
+  `--days <N>` is DAYS: the window is the last N days, counted from midnight N
+  days ago. Pass the token to the collector as-is (`--days 7d` and `--days 7`
+  both work); it computes the date, so do not compute it yourself.
+- A token matching `YYYY-MM-DD` is SINCE. If both DAYS and SINCE are given,
+  stop and ask which one is meant.
+- Without either the window is all history.
 - Every other token is an author alias: a name, a login or an email. The first
   one names the report. At least one is required; if none, ask for it and stop.
 
-State the resolved inputs in one line: aliases, window, repo, default branch.
+State the resolved inputs in one line: aliases, window (`last N days`, `since
+YYYY-MM-DD` or `all history`), repo, default branch.
 
 ## 2. Collect
 
 Run once, with one `--author` per alias:
 
 ```
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-author-commits.sh --author "<alias>" [--author "<alias>"]... [--since <SINCE>] [--repo <repo>] [--default <branch>] [--stale-days <n>]
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/collect-author-commits.sh --author "<alias>" [--author "<alias>"]... [--days <DAYS> | --since <SINCE>] [--repo <repo>] [--default <branch>] [--stale-days <n>]
 ```
 
 It fetches all refs, lists every local and remote branch, finds the commits by
@@ -89,8 +96,9 @@ asserting it.
 ## 5. Write
 
 Produce the report in the exact shape given in `author-audit.md`, save it to
-`.claude/reports/audit/<slug>-<SINCE or all>.md` where `<slug>` is the first
-alias in lowercase with non-alphanumerics replaced by `-`, then print the
+`.claude/reports/audit/<slug>-<window>.md` where `<window>` is `<N>d` for a
+day count, the SINCE date, or `all`, and `<slug>` is the first alias in
+lowercase with non-alphanumerics replaced by `-`, then print the
 **Summary** and **Prioritised action list** sections in the conversation with
 the saved path.
 
