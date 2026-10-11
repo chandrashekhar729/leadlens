@@ -1,12 +1,12 @@
 # LeadLens
 
-A TL's lens for reviewing code, architecture and implementation. A Claude Code plugin for Team Leads and PMs. It turns GitHub activity into weekly and monthly engineering reports, adds a fast pre-merge review skill and an evidence-based Lead Lens audit with a ship verdict, audits one author's commits across every branch, and blocks hardcoded secrets before they are written.
+A TL's lens for reviewing code, architecture and implementation. A Claude Code plugin for Team Leads and PMs. It turns GitHub activity into weekly and monthly engineering reports, adds a fast pre-merge review skill and an evidence-based Lead Lens audit with a ship verdict, writes a short code audit report of one author's commits across every branch or of one branch before merge, and blocks hardcoded secrets before they are written.
 
 | Command | What it does |
 |---|---|
 | `/leadlens:weekly-report [owner/repo] [github-login] [since] [until]` | Weekly report: delivered work, PRs, reviews, blockers, TL action items. Defaults to the last 7 days. Give a repo to run from anywhere without a config file, and a GitHub login for a one-person report. Review health follows the same checklist as `quick-review`, aggregate only. |
 | `/leadlens:monthly-report [owner/repo] [github-login] [YYYY-MM]` | Monthly report: delivery themes, trend versus the previous month, recurring blockers, coaching signals. Add a GitHub login for a one-person report, useful for one-on-one prep. Review health follows the same checklist as `quick-review`, aggregate only. |
-| `/leadlens:author-audit <author> [alias ...] [7d\|15d\|30d \| since YYYY-MM-DD] [--repo path\|url] [--default branch]` | Full-repository audit of one author's commits on every local and remote branch, never only the checked-out one. Defaults to all history; `7d`, `15d`, `30d` (any `Nd`) limits it to the last N days. Fetches all refs, de-duplicates commits across branches, marks what is merged into the default branch and what is stranded, reads every diff, and writes a consolidated report: branch coverage, commit inventory, security findings by severity, code-standard findings, recurring patterns, prioritised actions, and an appendix naming anything that could not be scanned. |
+| `/leadlens:author-audit <author> [alias ...] [7d\|15d\|30d\|Nd \| since YYYY-MM-DD]` or `--branch <name> [--base branch]`, plus `[--lang hinglish] [--repo path\|url]` | Code audit report from git alone. Author mode: one person's commits in the last N days (default 7) on every remote branch, with the branch each commit was really made on and whether it is in master, development or not merged. Branch mode: one branch against the branch it will merge into, all authors, with the behind-count and a clean-merge check. Reads every own commit and the conflict fixes of merge commits, then writes a one-screen report: verdict, what was worked on, issues ranked Critical to Low with `file:line` and a concrete fix, habits, coverage. Plain English, or Hinglish with `--lang hinglish`. |
 | `/leadlens:quick-review [base-ref] [--fast]` | Fast review of changed files against project guidelines, styling tokens, UI/UX, accessibility and defensive security checklists, plus prettier, eslint, typecheck and tests. Changed screens are also verified in the browser when the diff touches front-end files and a dev server and browser tool are available. |
 | `/leadlens:audit [pr\|branch\|base-ref\|path\|feature] [--fix] [--full] [--fast]` | Lead Lens: evidence-based audit of one change with a ship verdict. Runs the real gates (typecheck, lint, stylelint, tests, build), re-reads the whole diff, traces the blast radius of every changed export, works a break-it list and a twelve-section checklist, and reports SHIP, SHIP WITH NOTES, FIX FIRST or NEEDS INPUT. Every pass cites its evidence; anything unchecked is UNVERIFIED, never a pass. Report only by default; `--fix` fixes Blockers and Majors and re-audits, at most three loops. |
 
@@ -21,7 +21,7 @@ The hook runs on every `Edit` and `Write` and blocks the write when the new text
 
 ## Install
 
-Requires `gh` (authenticated with `gh auth login`) and `jq`. `author-audit` needs only `git` and `jq`. `quick-review` uses the project's own prettier, eslint, tsc and test script when present. Browser verification in `quick-review` is best effort and needs a browser MCP tool (Claude in Chrome or Playwright); it is skipped otherwise.
+Requires `gh` (authenticated with `gh auth login`) and `jq`. `author-audit` needs only `git` and `jq` (Git 2.38+ gives an exact clean-merge check; older Git gets an approximate one). `quick-review` uses the project's own prettier, eslint, tsc and test script when present. Browser verification in `quick-review` is best effort and needs a browser MCP tool (Claude in Chrome or Playwright); it is skipped otherwise.
 
 From a GitHub marketplace repo:
 
@@ -61,7 +61,13 @@ Members are GitHub logins. Without this file the collector uses the current repo
 
 ## Author audit
 
-`author-audit` answers "what did this person commit, anywhere in this repository, and is it safe?". Give one or more aliases (name, login, email), optionally a window as a day count (`7d`, `15d`, `30d`) or a start date (`YYYY-MM-DD`), and optionally a repository path or URL; a URL is mirror-cloned under `.claude/reports/data/` so the checkout you are in is never touched. The collector fetches all refs, matches by author and by committer across every branch, tag and stash, and flags commits where the two differ. The review reads each diff, not the messages; secrets are cited by location and never reproduced; and anything unread, unreadable or unfetched is listed in the report's appendix. For large histories the review runs in rounds and rewrites the report after each one, so the file on disk is always complete about its own gaps. Reports go to `.claude/reports/audit/`.
+`author-audit` answers "what did this person commit, anywhere in this repository, and is it safe?" and, with `--branch`, "is this branch ready to merge?". It is a report written for two readers: a team lead who decides in two minutes, and a developer who fixes things without asking questions. The first three lines give the verdict (Stop, Fix first, Good), the counts and what must happen next; then one block per issue with the problem, why it matters, `file:line`, sha, branch, merge status, a concrete fix and an effort estimate.
+
+Author mode takes one or more aliases (name, login, email), a window as a day count (`7d`, `15d`, `30d`; default 7) or a start date (`since YYYY-MM-DD`), and optionally a repository path or URL; a URL is mirror-cloned under `.claude/reports/data/` so the checkout you are in is never touched. The collector fetches all refs, matches by author and by committer on every remote branch, gives each commit one status (in master, in development, not merged), and finds the branches a commit was really made on, never the ones that only received it through a merge. Branches that are copies of each other (`kb_` prefixes, `_v2` suffixes) are reported as one work item.
+
+Branch mode takes a branch name and, optionally, the branch it will merge into (default `development` if it exists, else master). It judges the final code of the branch, lists the commits by author, says how far the branch is behind its base, and whether it merges cleanly.
+
+In both modes the review reads diffs, not messages; merge commits are read only for their conflict fixes; generated and lock files are skipped and said so; secrets are cited by location and never reproduced; anything unread is named in the report's Coverage section. Reports go to `.claude/reports/<scope>.md` (for example `gopal-7d.md` or `branch-feature_x.md`) and the raw data, diffs and the exact commands used go to `.claude/reports/data/<scope>/`.
 
 ## Lead Lens audit
 
@@ -73,7 +79,7 @@ With `--fix` it becomes a gate: it fixes the Blockers and Majors it introduced, 
 
 `quick-review` and the Review health step of both reports open the changed screens when the diff touches anything rendered, including CSS and HTML only changes. It uses the Claude in Chrome extension or the Playwright MCP server, whichever is available, and finds a URL in this order: `baseUrl` from the config, the `dev` script in `package.json`, or a static server for plain HTML and CSS. With no browser tool the step is skipped and the report says so. The Chrome extension's window resize can be ignored by the window manager; then responsive widths are reported as not verified.
 
-Reports are written to `.claude/reports/weekly/`, `.claude/reports/monthly/`, `.claude/reports/audit/` and raw data to `.claude/reports/data/`. Add `.claude/reports/` to the project's `.gitignore`.
+Reports are written to `.claude/reports/weekly/`, `.claude/reports/monthly/`, audit reports to `.claude/reports/<scope>.md` and raw data to `.claude/reports/data/`. Add `.claude/reports/` to the project's `.gitignore`.
 
 ## Schedule it
 
@@ -102,7 +108,7 @@ leadlens/
 │   ├── styling-tailwind-scss.md
 │   └── ui-guidelines.md
 ├── scripts/
-│   ├── collect-author-commits.sh
+│   ├── collect-audit-commits.sh
 │   ├── collect-github-activity.sh
 │   ├── quick-checks.sh
 │   └── scan-patterns.sh
