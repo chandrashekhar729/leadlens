@@ -6,4 +6,4 @@ node_modules/
 # Written by Claude Code each time it loads the plugin.
 .claude-plugin/types/
 # Local product mockups, not part of the plugin.
-dashboard/
+dashboard/.env

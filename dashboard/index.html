@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Team Progress</title>
+<script>
+/* ------------------------------------------------------------------
+   CLASSIFICATION CONFIG + LOGIC. Weights, bounds and thresholds live
+   here; classify() is the single function that turns a user's weekly
+   history into a verdict.
+   ------------------------------------------------------------------ */
+(function (root) {
+  const CONFIG = {
+    WEIGHTS: { commits: 0.30, merged: 0.30, size: 0.20, hits: 0.20 },
+    // fixed bounds for normalising each metric to 0-100 (best = 100, worst = 0)
+    BOUNDS: {
+      commits: { best: 15,  worst: 0 },     // commits in the week
+      merged:  { best: 100, worst: 0 },     // % of commits already in master/main
+      size:    { best: 80,  worst: 800 },   // avg lines changed per commit (small is good)
+      hits:    { best: 0,   worst: 10 }     // pattern hits: secrets, debug, console
+    },
+    RECENT_WEEKS: 2,          // latest weeks averaged for "now"
+    BASELINE_WEEKS: 4,        // weeks before that averaged for "before"
+    THRESHOLD: 8,             // score points: >= +8 improving, <= -8 declining
+    MIN_WEEKS: 3,             // fewer weeks of data => "NEW · not enough data"
+    SAME_PATTERN_MIN_WEEKS: 3 // weakest metric must repeat this long to be named
+  };
+  const METRIC_FIELD = { commits: 'commits', merged: 'mergedPct', size: 'avgLines', hits: 'patternHits' };
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const avg = a => a.reduce((s, v) => s + v, 0) / a.length;
+  const normalise = (value, b) => clamp((value - b.worst) / (b.best - b.worst) * 100, 0, 100);
+
+  function metricScores(week) {
+    const out = {};
+    for (const m in CONFIG.WEIGHTS) out[m] = normalise(week[METRIC_FIELD[m]], CONFIG.BOUNDS[m]);
+    return out;
+  }
+  function scoreWeek(week) {
+    const s = metricScores(week);
+    let total = 0;
+    for (const m in CONFIG.WEIGHTS) total += s[m] * CONFIG.WEIGHTS[m];
+    return Math.round(total * 10) / 10;
+  }
+  function classify(user) {
+    const weeks = user.history;
+    const n = weeks.length;
+    const scores = weeks.map(scoreWeek);
+    const perWeek = weeks.map(metricScores);
+    if (n < CONFIG.MIN_WEEKS) {
+      return { verdict: 'new', scores, perWeek, weeksOfData: n, change: null, recentAvg: n ? avg(scores) : null, baselineAvg: null, weakestRun: null, weakestOverall: null };
+    }
+    const recentN = CONFIG.RECENT_WEEKS;
+    const baselineN = Math.max(1, Math.min(CONFIG.BASELINE_WEEKS, n - recentN));
+    const recent = scores.slice(n - recentN);
+    const baseline = scores.slice(n - recentN - baselineN, n - recentN);
+    const recentAvg = avg(recent), baselineAvg = avg(baseline);
+    const change = Math.round((recentAvg - baselineAvg) * 10) / 10;
+    let verdict = 'same';
+    if (change >= CONFIG.THRESHOLD) verdict = 'improving';
+    else if (change <= -CONFIG.THRESHOLD) verdict = 'declining';
+    // weakest metric per week; how many weeks in a row (ending now) it has been the same one
+    const weakestEach = perWeek.map(s => Object.keys(s).reduce((a, b) => (s[a] <= s[b] ? a : b)));
+    let run = 1;
+    while (run < n && weakestEach[n - 1 - run] === weakestEach[n - 1]) run++;
+    const weakestRun = run >= CONFIG.SAME_PATTERN_MIN_WEEKS ? { metric: weakestEach[n - 1], weeks: run } : null;
+    const means = {};
+    for (const m in CONFIG.WEIGHTS) means[m] = avg(perWeek.map(s => s[m]));
+    const weakestOverall = Object.keys(means).reduce((a, b) => (means[a] <= means[b] ? a : b));
+    return { verdict, scores, perWeek, weeksOfData: n, baselineWeeks: baselineN, recentWeeks: recentN, recentAvg, baselineAvg, change, weakestRun, weakestOverall };
+  }
+  root.TeamLogic = { CONFIG, METRIC_FIELD, normalise, metricScores, scoreWeek, classify };
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+<script src="https://unpkg.com/framer-motion@11.11.17/dist/framer-motion.js"></script>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        bg: 'var(--bg)', card: 'var(--card)', card2: 'var(--card-2)', line: 'var(--line)', line2: 'var(--line-2)',
+        ink: 'var(--ink)', mute: 'var(--mute)', soft: 'var(--soft)',
+        brand: 'var(--brand)', up: 'var(--up)', same: 'var(--same)', down: 'var(--down)',
+        upInk: 'var(--up-ink)', sameInk: 'var(--same-ink)', downInk: 'var(--down-ink)', brandInk: 'var(--brand-ink)'
+      },
+      fontFamily: { sans: ['"Plus Jakarta Sans"', '"Segoe UI"', 'system-ui', '-apple-system', 'sans-serif'], serif: ['"Source Serif 4"', 'Georgia', '"Times New Roman"', 'serif'], mono: ['"JetBrains Mono"', 'ui-monospace', 'Menlo', 'Consolas', 'monospace'] },
+      borderRadius: { card: '16px' },
+      boxShadow: { glow: '0 1px 2px rgba(29,26,22,0.04), 0 10px 28px -14px rgba(29,26,22,0.22)' }
+    }
+  }
+};
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<style>
+/* Theme tokens. Tailwind utilities reference these so one attribute flips the theme. */
+:root {
+  --bg: #F5F0E8; --card: #FFFFFF; --card-2: #FAF7F1; --line: #E6DFD3; --line-2: #CFC5B4;
+  --ink: #1D1A16; --mute: #5F5A52; --soft: #8E877B;
+  --brand: #3F6FB5; --brand-ink: #2F5B9A; --up: #2E8B57; --same: #D9A020; --down: #C94A4A;
+  --up-ink: #256F46; --same-ink: #8F6A0F; --down-ink: #A33A3A;
+  --up-soft: rgba(46,139,87,0.12); --same-soft: rgba(217,160,32,0.16); --down-soft: rgba(201,74,74,0.12); --brand-soft: rgba(63,111,181,0.12);
+  --heat: 63, 111, 181;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #0E1220; --card: #161B2E; --card-2: #1C2238; --line: #232A44; --line-2: #2E3758;
+  --ink: #EEF0F8; --mute: #8E96B4; --soft: #5F678A;
+  --brand: #7C5CFF; --brand-ink: #A48BFF; --up: #22C55E; --same: #F5B83D; --down: #F2545B;
+  --up-ink: #4ADE80; --same-ink: #FBCB62; --down-ink: #FF7A80;
+  --up-soft: rgba(34,197,94,0.14); --same-soft: rgba(245,184,61,0.14); --down-soft: rgba(242,84,91,0.14); --brand-soft: rgba(124,92,255,0.16);
+  --heat: 124, 92, 255;
+  color-scheme: dark;
+}
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font-family: "Plus Jakarta Sans", "Segoe UI", system-ui, -apple-system, sans-serif; font-size: 14px; line-height: 1.5; font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.tone-improving { --tone: var(--up); --tone-ink: var(--up-ink); --tone-soft: var(--up-soft); }
+.tone-same { --tone: var(--same); --tone-ink: var(--same-ink); --tone-soft: var(--same-soft); }
+.tone-declining { --tone: var(--down); --tone-ink: var(--down-ink); --tone-soft: var(--down-soft); }
+.tone-new { --tone: var(--brand); --tone-ink: var(--brand-ink); --tone-soft: var(--brand-soft); }
+.heat-cell { background: rgba(var(--heat), calc(0.06 + var(--v) * 0.1)); }
+select.ctl { appearance: none; -webkit-appearance: none; padding-right: 30px; background-image: linear-gradient(45deg, transparent 50%, var(--mute) 50%), linear-gradient(135deg, var(--mute) 50%, transparent 50%); background-position: calc(100% - 15px) 15px, calc(100% - 10px) 15px; background-size: 5px 5px; background-repeat: no-repeat; }
+.recharts-wrapper, .recharts-surface { outline: none; }
+#root:empty::after { content: "Loading Team Progress…"; display: block; padding: 48px; text-align: center; color: var(--mute); font-family: system-ui, sans-serif; }
+@media print {
+  :root { --bg: #fff; --card: #fff; --card-2: #f6f6f6; --line: #ddd; --line-2: #bbb; --ink: #111; --mute: #555; --soft: #777; --up-ink: #15803D; --same-ink: #A16207; --down-ink: #DC2626; --brand-ink: #5B3FD6; }
+  .no-print { display: none !important; }
+  .print-card { box-shadow: none !important; break-inside: avoid; }
+}
+</style>
+</head>
+<body class="font-sans text-sm leading-normal">
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const EMPTY = { weeks: [], users: [] };
+fetch('data.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : EMPTY).catch(() => EMPTY).then(DATA => {
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+const { ResponsiveContainer, AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceDot, ReferenceArea } = Recharts;
+const { motion, AnimatePresence, animate, useReducedMotion } = Motion;
+
+/* ================================================================
+   Derived reports (pure functions over data.json + TeamLogic)
+   ================================================================ */
+const L = window.TeamLogic;
+const CFG = L.CONFIG;
+const N = DATA.weeks.length;
+const avg = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0;
+const AVATAR = ['#7C5CFF', '#0EA5A4', '#E0569A', '#2F8DE0', '#E8742C', '#7AB31B', '#4F6BE8', '#D64561'];
+const DAY = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const PALETTE = {
+  light: { improving: '#2E8B57', same: '#D9A020', declining: '#C94A4A', new: '#3F6FB5', brand: '#3F6FB5' },
+  dark:  { improving: '#22C55E', same: '#F5B83D', declining: '#F2545B', new: '#7C5CFF', brand: '#7C5CFF' }
+};
+const ThemeCtx = React.createContext(PALETTE.light);
+const VERDICT_LABEL = { improving: 'Improving', same: 'Same pattern', declining: 'Declining', new: 'New · not enough data' };
+const METRIC = {
+  commits: { label: 'Commits', field: 'commits', goodWhenDown: false },
+  merged:  { label: 'Merged to main', field: 'mergedPct', goodWhenDown: false },
+  size:    { label: 'Avg commit size', field: 'avgLines', goodWhenDown: true },
+  hits:    { label: 'Pattern hits', field: 'patternHits', goodWhenDown: true }
+};
+const fmtVal = (m, v) => m === 'merged' ? Math.round(v) + '%' : m === 'size' ? Math.round(v) + ' lines' : String(Math.round(v));
+const fmtDate = s => new Date(s + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+const monthName = s => new Date(s + 'T00:00:00').toLocaleDateString('en-GB', { month: 'long' });
+const sign = v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v);
+const weekAt = (u, i) => u.history[i - (N - u.history.length)] || null;
+const rawAvg = (weeks, field) => avg(weeks.map(w => w[field]));
+
+function habitFor(u) {
+  const h = u.heatmap;
+  const dayTot = h.map(r => r.reduce((a, b) => a + b, 0));
+  const hourTot = Array.from({ length: 24 }, (_, i) => h.reduce((a, r) => a + r[i], 0));
+  const total = hourTot.reduce((a, b) => a + b, 0) || 1;
+  const early = dayTot[0] + dayTot[1], late = dayTot[3] + dayTot[4];
+  const after3 = hourTot.slice(15).reduce((a, b) => a + b, 0) / total;
+  const before2 = hourTot.slice(0, 14).reduce((a, b) => a + b, 0) / total;
+  const peakDay = DAY[dayTot.indexOf(Math.max(...dayTot))];
+  const peakHour = hourTot.indexOf(Math.max(...hourTot));
+  const peak = `Busiest on ${peakDay} around ${peakHour % 12 || 12}${peakHour < 12 ? 'am' : 'pm'}.`;
+  if (early > 2.2 * late) return { key: 'frontloaded', text: 'Commits land on Monday and Tuesday, then activity drops after Wednesday.', peak, clause: 'most of the week\'s work lands in the first two days' };
+  if (after3 > 0.6) return { key: 'late', text: 'Most commits land after 3pm.', peak, clause: 'commits cluster late in the day' };
+  if (before2 > 0.68) return { key: 'morning', text: 'Commits in the morning and goes quiet after lunch.', peak, clause: 'commits cluster in the morning' };
+  return { key: 'steady', text: 'Steady activity across the working week.', peak, clause: '' };
+}
+const WEAK_TEXT = {
+  commits: v => `about ${Math.round(v)} commits a week`,
+  merged: v => `only ${Math.round(v)}% of commits reach main`,
+  size: v => `commits average ${Math.round(v)} lines`,
+  hits: v => `about ${Math.round(v)} pattern hits a week (secrets, debug, console)`
+};
+const ACTIONS = {
+  commits: ['Commit at least once a day so work is visible and reviewable.', 'Split large tasks into smaller, mergeable steps.'],
+  merged: ['Open the PR early and chase the review within a day.', 'Rebase stale branches and close ones that will not merge.'],
+  size: ['Keep a commit to one change under ~300 lines.', 'Separate refactors from feature changes.'],
+  hits: ['Run the secrets and debug-statement scan before every commit.', 'Remove console and debug statements in the same commit that added them.']
+};
+function buildReport(u) {
+  const r = L.classify(u);
+  const n = u.history.length;
+  const recent = u.history.slice(Math.max(0, n - CFG.RECENT_WEEKS));
+  const baseline = r.verdict === 'new' ? recent : u.history.slice(n - CFG.RECENT_WEEKS - r.baselineWeeks, n - CFG.RECENT_WEEKS);
+  const metrics = {};
+  for (const m in METRIC) {
+    const now = rawAvg(recent, METRIC[m].field), before = rawAvg(baseline, METRIC[m].field);
+    const delta = now - before;
+    const good = METRIC[m].goodWhenDown ? delta < 0 : delta > 0;
+    const scoreGain = L.normalise(now, CFG.BOUNDS[m]) - L.normalise(before, CFG.BOUNDS[m]);
+    metrics[m] = { now, before, delta, good, scoreGain, score: L.normalise(now, CFG.BOUNDS[m]) };
+  }
+  const habit = habitFor(u);
+  const weakest = r.weakestRun ? r.weakestRun.metric : (r.weakestOverall || Object.keys(metrics).reduce((a, b) => (metrics[a].score <= metrics[b].score ? a : b)));
+  const ranked = Object.keys(metrics).sort((a, b) => metrics[b].scoreGain - metrics[a].scoreGain);
+  const phrase = (m, up) => {
+    const x = metrics[m];
+    if (m === 'size') return `average commit ${up ? 'down' : 'up'} from ${fmtVal(m, x.before)} to ${fmtVal(m, x.now)} since mid-${monthName(baseline[0].week)}`;
+    if (m === 'hits') return `pattern hits ${up ? 'down' : 'up'} from ${fmtVal(m, x.before)} to ${fmtVal(m, x.now)} a week`;
+    if (m === 'merged') return `merged share ${up ? 'up' : 'down'} from ${fmtVal(m, x.before)} to ${fmtVal(m, x.now)}`;
+    return `commits ${up ? 'up' : 'down'} from ${fmtVal(m, x.before)} to ${fmtVal(m, x.now)} a week`;
+  };
+  const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+  let insight = '', actions = [];
+  if (r.verdict === 'improving') {
+    insight = cap(phrase(ranked[0], true)) + ', ' + phrase(ranked[1], true) + '.';
+    actions = ['Keep the current routine and share what changed with the team.', ACTIONS[weakest][0]];
+  } else if (r.verdict === 'declining') {
+    const worst = ranked.slice().reverse();
+    insight = cap(phrase(worst[0], false)) + ', ' + phrase(worst[1], false) + '.';
+    actions = ACTIONS[worst[0]];
+  } else if (r.verdict === 'same') {
+    const weeks = r.weakestRun ? r.weakestRun.weeks : n;
+    insight = `Same pattern for ${weeks} weeks running: ${WEAK_TEXT[weakest](metrics[weakest].now)}` + (habit.clause ? `, ${habit.clause}.` : '.');
+    actions = ACTIONS[weakest];
+  } else {
+    insight = `Only ${n} week${n === 1 ? '' : 's'} of data so far. A verdict needs ${CFG.MIN_WEEKS}; first verdict in ${CFG.MIN_WEEKS - n} week${CFG.MIN_WEEKS - n === 1 ? '' : 's'}.`;
+    actions = [ACTIONS[weakest][0]];
+  }
+  const scores = Array.from({ length: N }, (_, k) => { const w = weekAt(u, k); return w ? L.scoreWeek(w) : null; });
+  return {
+    u, r, metrics, habit, weakest, insight, actions, scores,
+    score: Math.round(r.recentAvg),
+    confidence: r.verdict === 'new' ? `${n} of ${CFG.MIN_WEEKS} weeks of data` : `based on ${r.weeksOfData} weeks of data`,
+    color: AVATAR[parseInt(u.id.slice(1), 10) % AVATAR.length]
+  };
+}
+const REPORTS = DATA.users.map(buildReport);
+
+function teamWeek(i) {
+  let commits = 0, merged = 0, size = 0, hits = 0;
+  for (const u of DATA.users) { const w = weekAt(u, i); if (!w) continue; commits += w.commits; merged += w.mergedPct * w.commits; size += w.avgLines * w.commits; hits += w.patternHits; }
+  return commits ? { commits, merged: merged / commits, size: size / commits, hits } : { commits: 0, merged: 0, size: 0, hits: 0 };
+}
+const TEAM = Array.from({ length: N }, (_, i) => teamWeek(i));
+function aggregate(a, b) {
+  if (a < 0 || b < a) return null;
+  const ws = TEAM.slice(a, b + 1);
+  const commits = ws.reduce((s, w) => s + w.commits, 0);
+  const wavg = k => commits ? ws.reduce((s, w) => s + w[k] * w.commits, 0) / commits : 0;
+  return { commits, merged: wavg('merged'), size: wavg('size'), hits: ws.reduce((s, w) => s + w.hits, 0) };
+}
+function windowFor(range, from, to) {
+  if (range === 'week') return [N - 1, N - 1];
+  if (range === '4w') return [Math.max(0, N - 4), N - 1];
+  if (range === 'month') { const m = DATA.weeks[N - 1].slice(0, 7); let s = N - 1; while (s > 0 && DATA.weeks[s - 1].slice(0, 7) === m) s--; return [s, N - 1]; }
+  return [Math.min(from, to), Math.max(from, to)];
+}
+function groupLine(members, improving) {
+  if (!members.length) return 'Nobody in this group right now';
+  const means = {};
+  for (const m in METRIC) means[m] = avg(members.map(x => x.metrics[m].scoreGain));
+  const key = Object.keys(means).reduce((p, q) => (improving ? means[q] > means[p] : means[q] < means[p]) ? q : p);
+  const now = avg(members.map(x => x.metrics[key].now)), before = avg(members.map(x => x.metrics[key].before));
+  if (key === 'size') return `Avg commit ${now < before ? 'down' : 'up'} ${Math.round(Math.abs(now - before))} lines on avg`;
+  if (key !== 'merged') { const d = Math.round(Math.abs(now - before)); return `${d} ${now < before ? 'fewer' : 'more'} ${key === 'hits' ? 'pattern hits' : 'commits'} each on avg`; }
+  return `${METRIC[key].label} ${now > before ? 'up' : 'down'} ${Math.round(Math.abs(now - before) * 10) / 10} pts on avg`;
+}
+
+/* ================================================================
+   Small shared pieces
+   ================================================================ */
+const Icon = ({ d, size = 16, sw = 2, className = '' }) => (
+  <svg viewBox="0 0 16 16" width={size} height={size} className={className} aria-hidden="true" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
+);
+const ARROW = { up: 'M8 13V3M4.5 6.5 8 3l3.5 3.5', down: 'M8 3v10M4.5 9.5 8 13l3.5-3.5', flat: 'M3 8h10' };
+const Arrow = ({ dir, size = 12 }) => <Icon d={ARROW[dir]} size={size} sw={2.4} />;
+const dirTone = (dir, good) => dir === 'flat' ? 'text-mute' : good ? 'text-upInk' : 'text-downInk';
+
+function CountUp({ value, format }) {
+  const reduced = useReducedMotion();
+  const [n, setN] = useState(reduced ? value : 0);
+  useEffect(() => {
+    if (reduced) { setN(value); return; }
+    const c = animate(0, value, { duration: 0.9, ease: 'easeOut', onUpdate: setN });
+    return () => c.stop();
+  }, [value, reduced]);
+  return <>{format(n)}</>;
+}
+
+function Spark({ values, color, height = 44, rangeFrom = -1, rangeTo = -1, label }) {
+  const reduced = useReducedMotion();
+  const data = values.map((v, i) => ({ i, v }));
+  const nums = values.filter(v => v != null);
+  if (nums.length < 2) return <div style={{ height }} className="text-[11px] text-soft grid place-items-center">Not enough weeks yet</div>;
+  const lo = Math.min(...nums), hi = Math.max(...nums), pad = (hi - lo || 2) * 0.2;
+  const last = values.length - 1;
+  return (
+    <motion.div style={{ height }} className="min-w-0" role="img" aria-label={label} initial={reduced ? false : { clipPath: 'inset(0 100% 0 0)' }} animate={{ clipPath: 'inset(0 0% 0 0)' }} transition={{ duration: 0.9, ease: [0.2, 0.7, 0.2, 1] }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 6, right: 8, bottom: 2, left: 8 }}>
+          <XAxis dataKey="i" type="number" domain={[0, last]} hide />
+          <YAxis domain={[lo - pad, hi + pad]} hide />
+          {rangeFrom >= 0 && <ReferenceArea x1={rangeFrom} x2={rangeTo} fill={color} fillOpacity={0.12} radius={4} />}
+          <Area type="monotone" dataKey="v" stroke={color} strokeWidth={2} fill={color} fillOpacity={0.12} dot={false} activeDot={false} isAnimationActive={false} connectNulls={false} />
+          {values[last] != null && <ReferenceDot x={last} y={values[last]} r={6} fill={color} fillOpacity={0.25} stroke="none" />}
+          {values[last] != null && <ReferenceDot x={last} y={values[last]} r={3.2} fill={color} stroke="var(--card)" strokeWidth={1.5} />}
+        </AreaChart>
+      </ResponsiveContainer>
+    </motion.div>
+  );
+}
+
+const Avatar = ({ x, size = 44, cls = 'text-[15px]' }) => (
+  <span className={`rounded-full grid place-items-center font-extrabold text-white tracking-wide shrink-0 ${cls}`} style={{ width: size, height: size, background: x.color }} aria-hidden="true">{x.u.initials}</span>
+);
+
+/* ================================================================
+   Sections
+   ================================================================ */
+function TopBar({ range, setRange, from, to, setFrom, setTo, search, setSearch, theme, setTheme, onExport }) {
+  const ctl = 'h-9 rounded-[10px] border border-line bg-card px-3 text-ink hover:border-line2';
+  return (
+    <header className="sticky top-0 z-10 bg-bg flex flex-wrap items-center gap-x-4 gap-y-3 py-4 border-b border-line">
+      <div className="flex items-center gap-2.5 mr-1.5">
+        <span className="w-[30px] h-[30px] rounded-[9px] grid place-items-center shrink-0" style={{ background: 'var(--brand)' }} aria-hidden="true"><Icon d="M3 13 13 3M8 3h5v5" size={16} sw={2.2} className="text-white" /></span>
+        <span className="font-extrabold text-base tracking-tight">LeadLens</span>
+        <span className="text-soft" aria-hidden="true">/</span>
+        <h1 className="font-serif text-xl font-medium text-ink m-0 hidden sm:block">Team Progress</h1>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 ml-auto no-print">
+        <label className="sr-only" htmlFor="range">Date range</label>
+        <select id="range" className={`ctl ${ctl}`} value={range} onChange={e => setRange(e.target.value)}>
+          <option value="week">This week</option><option value="4w">Last 4 weeks</option><option value="month">This month</option><option value="custom">Custom</option>
+        </select>
+        {range === 'custom' && (
+          <span className="inline-flex items-center gap-1.5">
+            <label className="sr-only" htmlFor="from">From week</label>
+            <select id="from" className={`ctl ${ctl}`} value={from} onChange={e => setFrom(+e.target.value)}>{DATA.weeks.map((w, i) => <option key={w} value={i}>{fmtDate(w)}</option>)}</select>
+            <span className="font-mono text-[11px] font-medium uppercase tracking-wider text-mute">to</span>
+            <label className="sr-only" htmlFor="to">To week</label>
+            <select id="to" className={`ctl ${ctl}`} value={to} onChange={e => setTo(+e.target.value)}>{DATA.weeks.map((w, i) => <option key={w} value={i}>{fmtDate(w)}</option>)}</select>
+          </span>
+        )}
+        <span className="relative flex-1 basis-full sm:basis-auto sm:flex-none">
+          <Icon d="M10.5 10.5 14 14M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0z" size={15} className="absolute left-[11px] top-[10px] text-mute pointer-events-none" />
+          <label className="sr-only" htmlFor="search">Search users</label>
+          <input id="search" type="search" className={`${ctl} pl-[34px] w-full sm:w-[200px]`} placeholder="Search people" autoComplete="off" value={search} onChange={e => setSearch(e.target.value)} />
+        </span>
+        <button type="button" id="theme" className={`${ctl} w-9 px-0 inline-grid place-items-center`} aria-pressed={theme === 'light'} aria-label={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'} onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
+          {theme === 'light' ? <Icon d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7z" sw={1.8} /> : <Icon d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1M11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" sw={1.8} />}
+        </button>
+        <button type="button" id="export" className="h-9 rounded-[10px] px-3.5 border border-line2 bg-card text-ink font-semibold inline-flex items-center gap-2 hover:border-ink" onClick={onExport}>
+          <Icon d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11" size={15} />Export PDF
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function Kpis({ a, b }) {
+  const P = React.useContext(ThemeCtx);
+  const cur = aggregate(a, b), len = b - a + 1, prev = aggregate(a - len, a - 1);
+  const cards = [
+    { key: 'commits', label: 'Commits', fmt: v => Math.round(v).toLocaleString('en'), goodUp: true },
+    { key: 'merged', label: 'Merged to main', fmt: v => Math.round(v) + '%', goodUp: true },
+    { key: 'size', label: 'Avg commit size', fmt: v => Math.round(v) + ' lines', goodUp: false },
+    { key: 'hits', label: 'Pattern hits', fmt: v => String(Math.round(v)), goodUp: false }
+  ];
+  return (
+    <section aria-labelledby="pulse-h">
+      <div className="flex flex-wrap items-baseline justify-between gap-4 mb-3">
+        <h2 id="pulse-h" className="font-serif text-[22px] font-medium m-0 tracking-tight">Team pulse</h2>
+        <p className="m-0 text-[13px] text-mute">{fmtDate(DATA.weeks[a])} – {fmtDate(DATA.weeks[b])}{prev ? ` · compared with the ${len} week${len > 1 ? 's' : ''} before` : ' · no earlier period to compare'}</p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        {cards.map(c => {
+          const val = cur[c.key];
+          const series = TEAM.map(w => w[c.key]);
+          let pct = null, dir = 'flat', good = null;
+          if (prev && prev[c.key]) { pct = Math.round((val - prev[c.key]) / prev[c.key] * 100); dir = pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat'; good = pct === 0 ? null : (pct > 0) === c.goodUp; }
+          return (
+            <div key={c.key} className="print-card bg-card border border-line rounded-card p-[18px] pb-3.5 grid gap-2 min-w-0 transition hover:border-line2 hover:shadow-glow" data-kpi={c.key}>
+              <span className="font-mono text-[11px] font-medium uppercase tracking-wider text-mute">{c.label}</span>
+              <span className="font-serif text-[34px] font-medium tracking-tight leading-[1.1]"><CountUp value={val} format={c.fmt} /></span>
+              <span className={`inline-flex items-center gap-1 font-semibold text-[13px] ${dirTone(dir, good)}`} data-delta={good === null ? 'flat' : good ? 'good' : 'bad'}>
+                <Arrow dir={dir} />{pct === null ? 'no previous period' : <>{Math.abs(pct)}% <span className="text-mute font-medium">vs previous</span></>}
+              </span>
+              <div className="mt-1"><Spark values={series} color={P.brand} rangeFrom={a} rangeTo={b} label={`${c.label} by week: ${series.map((v, i) => fmtDate(DATA.weeks[i]) + ' ' + c.fmt(v)).join(', ')}`} /></div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function Verdicts({ groups, verdict, setVerdict }) {
+  const lines = {
+    improving: groupLine(groups.improving, true),
+    same: groups.same.length ? `Scores moved under ${CFG.THRESHOLD} pts · avg ${sign(Math.round(avg(groups.same.map(x => x.r.change)) * 10) / 10)}` : 'Nobody in this group right now',
+    declining: groupLine(groups.declining, false)
+  };
+  return (
+    <section aria-labelledby="verdict-h">
+      <h2 id="verdict-h" className="sr-only">Verdict summary</h2>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+        {['improving', 'same', 'declining'].map(v => {
+          const on = verdict === v;
+          return (
+            <button key={v} type="button" className={`tone-${v} print-card text-left bg-card border rounded-card px-5 py-[18px] grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 items-start transition hover:shadow-glow ${on ? 'border-[var(--tone)] shadow-[0_0_0_1px_var(--tone)] bg-[var(--tone-soft)]' : 'border-line'}`}
+              style={on ? { background: 'var(--tone-soft)' } : undefined} aria-pressed={on} data-verdict={v}
+              aria-label={`${groups[v].length} ${VERDICT_LABEL[v]}. ${lines[v]}. ${on ? 'Click to show everyone' : 'Click to filter the list'}`}
+              onClick={() => setVerdict(on ? null : v)}>
+              <span className="font-serif text-[36px] font-medium tracking-tight leading-none" style={{ color: 'var(--tone-ink)' }}>{groups[v].length}</span>
+              <span className="w-3 h-3 rounded-full mt-1.5" style={{ background: 'var(--tone)', boxShadow: '0 0 0 4px var(--tone-soft)' }} aria-hidden="true"></span>
+              <span className="font-bold" style={{ color: 'var(--tone-ink)' }}>{VERDICT_LABEL[v]}</span>
+              <span className="col-span-full text-mute text-[13px]">{lines[v]}</span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-mute text-[13px] flex flex-wrap gap-x-4 gap-y-1.5 items-center mt-2.5 mb-0">
+        <span>Verdict compares the latest {CFG.RECENT_WEEKS} weeks with the {CFG.BASELINE_WEEKS} before, independent of the date range.</span>
+        {groups.new.length > 0 && <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-card2 border border-line text-ink font-semibold text-xs">{groups.new.length} new · not enough data yet</span>}
+      </p>
+    </section>
+  );
+}
+
+function Metric({ m, x }) {
+  const d = x.metrics[m];
+  const dir = x.r.verdict === 'new' || Math.abs(d.delta) < 0.05 ? 'flat' : d.delta > 0 ? 'up' : 'down';
+  const reduced = useReducedMotion();
+  let dtext = '';
+  if (dir !== 'flat') dtext = m === 'merged' ? sign(Math.round(d.delta)) + ' pts' : m === 'size' ? sign(Math.round(d.delta)) + ' lines' : sign(Math.round(d.delta));
+  return (
+    <div className="grid gap-[3px] min-w-0">
+      <span className="text-[11px] text-mute font-semibold">{METRIC[m].label}</span>
+      <span className="flex items-baseline gap-2">
+        <span className="font-bold text-[15px]">{fmtVal(m, d.now)}</span>
+        <span className={`text-xs font-semibold inline-flex items-center gap-0.5 ${dirTone(dir, d.good)}`}><Arrow dir={dir} size={10} />{dtext && ' ' + dtext}</span>
+      </span>
+      <span className="h-1 rounded-sm bg-line overflow-hidden block">
+        <motion.span className="block h-full rounded-sm bg-brand origin-left" initial={{ scaleX: reduced ? d.score / 100 : 0 }} animate={{ scaleX: d.score / 100 }} transition={{ duration: 0.9, ease: [0.2, 0.7, 0.2, 1] }} />
+      </span>
+      <span className="sr-only">{METRIC[m].label} {fmtVal(m, d.now)}, {dir === 'flat' ? 'unchanged' : (d.good ? 'better' : 'worse') + ' by ' + dtext} vs the previous period</span>
+    </div>
+  );
+}
+
+function Ring({ score, tone }) {
+  const C = 2 * Math.PI * 40;
+  const reduced = useReducedMotion();
+  return (
+    <div className="relative w-[92px] h-[92px]" role="img" aria-label={`Progress score ${score} out of 100`}>
+      <svg viewBox="0 0 92 92" className="w-full h-full -rotate-90">
+        <circle cx="46" cy="46" r="40" fill="none" strokeWidth="7" stroke="var(--line)" />
+        <motion.circle cx="46" cy="46" r="40" fill="none" strokeWidth="7" stroke={tone} strokeLinecap="round" strokeDasharray={C} initial={{ strokeDashoffset: reduced ? C * (1 - score / 100) : C }} animate={{ strokeDashoffset: C * (1 - score / 100) }} transition={{ duration: 1, ease: [0.2, 0.7, 0.2, 1] }} />
+      </svg>
+      <div className="absolute inset-0 grid place-content-center text-center leading-none">
+        <span className="font-serif text-[26px] font-medium tracking-tight"><CountUp value={score} format={n => Math.round(n)} /></span>
+        <span className="text-[10px] text-soft mt-[3px]">of 100</span>
+      </div>
+    </div>
+  );
+}
+
+function Pattern({ x }) {
+  return (
+    <div className="grid gap-4 pt-4 border-t border-line" id={`pattern-${x.u.id}`}>
+      <div>
+        <h4 className="m-0 text-[13px] font-bold">Weekly activity</h4>
+        <p className="text-[11px] text-soft m-0 mb-2">Days × hours, darker is busier</p>
+        <div className="grid grid-cols-[28px_1fr] sm:grid-cols-[34px_1fr] gap-1.5 text-[10px] text-mute" role="img" aria-label={`Activity heatmap. ${x.habit.text} ${x.habit.peak}`}>
+          <div className="grid grid-rows-[repeat(7,12px)] gap-[3px] items-center">{DAY.map(d => <span key={d}>{d}</span>)}</div>
+          <div className="grid grid-cols-[repeat(24,minmax(0,1fr))] auto-rows-[12px] gap-[3px]">
+            {x.u.heatmap.flatMap((row, r) => row.map((v, h) => <motion.span key={r * 24 + h} className="heat-cell rounded-[3px]" style={{ '--v': (v / 9).toFixed(2) }} title={`${DAY[r]} ${h}:00 · ${v}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(h, 23) * 0.01 }} />))}
+          </div>
+          <div className="col-start-2 grid grid-cols-4"><span>12am</span><span>6am</span><span>12pm</span><span>6pm</span></div>
+        </div>
+      </div>
+      <div className="grid gap-1.5"><h4 className="m-0 text-[13px] font-bold">Recurring habit</h4><p className="m-0">{x.habit.text} {x.habit.peak}</p></div>
+      <div><h4 className="m-0 text-[13px] font-bold">Suggested action{x.actions.length > 1 ? 's' : ''}</h4><ol className="m-0 mt-1 pl-[18px] grid gap-1 list-decimal marker:text-brand">{x.actions.map(a => <li key={a}>{a}</li>)}</ol></div>
+    </div>
+  );
+}
+
+function UserCard({ x, index, open, toggle }) {
+  const P = React.useContext(ThemeCtx);
+  const v = x.r.verdict, tone = P[v], change = x.r.change;
+  const reduced = useReducedMotion();
+  const chTone = change == null ? 'text-mute' : change >= CFG.THRESHOLD ? 'text-upInk' : change <= -CFG.THRESHOLD ? 'text-downInk' : 'text-mute';
+  const chDir = change == null || Math.abs(change) < 0.05 ? 'flat' : change > 0 ? 'up' : 'down';
+  return (
+    <motion.article layout className={`tone-${v} print-card bg-card border border-line rounded-card p-5 grid gap-4 min-w-0 transition-colors hover:border-line2 hover:shadow-glow`}
+      initial={reduced ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: Math.min(index, 8) * 0.06 }} aria-label={`${x.u.name}, ${VERDICT_LABEL[v]}`} data-user={x.u.id}>
+      <div className="grid grid-cols-[auto_1fr_auto] gap-3 items-center">
+        <Avatar x={x} />
+        <div className="min-w-0"><div className="font-bold text-base leading-tight truncate">{x.u.name}</div><div className="text-mute text-[13px]">{x.u.role}</div></div>
+        <div className="grid gap-[3px] justify-items-end text-right">
+          <motion.span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-mono text-[10px] font-semibold tracking-wider uppercase" style={{ background: 'var(--tone-soft)', color: 'var(--tone-ink)' }} initial={reduced ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.25, duration: 0.5 }}>
+            <i className="w-[7px] h-[7px] rounded-full bg-current" aria-hidden="true" />{VERDICT_LABEL[v]}
+          </motion.span>
+          <span className="text-[11px] text-soft">{x.confidence}</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-[18px] items-center">
+        <div className="grid grid-cols-[auto_auto] sm:grid-cols-1 items-center justify-items-center gap-3.5 sm:gap-1.5">
+          <Ring score={x.score} tone={tone} />
+          <span className={`inline-flex items-center gap-1 font-bold text-[13px] ${chTone}`}><Arrow dir={chDir} />{change == null ? 'first verdict soon' : `${sign(Math.round(change))} vs last period`}</span>
+        </div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 min-w-0">{['commits', 'merged', 'size', 'hits'].map(m => <Metric key={m} m={m} x={x} />)}</div>
+      </div>
+      <div className="grid grid-cols-[auto_1fr] gap-3 items-center">
+        <span className="font-mono text-[10px] font-medium uppercase tracking-wider text-mute leading-tight">8-week<br />score</span>
+        <Spark values={x.scores} color={tone} height={48} label={`Progress score by week: ${x.scores.map((s, k) => s == null ? '' : fmtDate(DATA.weeks[k]) + ' ' + Math.round(s)).filter(Boolean).join(', ')}`} />
+      </div>
+      <p className="m-0 text-sm pl-3.5 py-0.5 border-l-2 leading-normal" style={{ borderLeftColor: tone }}>{x.insight}</p>
+      <div className="flex justify-between items-center gap-3">
+        <button type="button" className="no-print border border-line rounded-[10px] px-3 py-[7px] font-semibold text-[13px] inline-flex items-center gap-2 text-ink hover:border-brand hover:text-brandInk" aria-expanded={open} aria-controls={`pattern-${x.u.id}`} onClick={toggle}>
+          {open ? 'Hide pattern' : 'Show pattern'}<motion.span animate={{ rotate: open ? 180 : 0 }} className="inline-flex"><Icon d="M3.5 6 8 10.5 12.5 6" size={12} sw={2.4} /></motion.span>
+        </button>
+        <span className="text-[11px] text-soft">{x.habit.key === 'steady' ? 'No strong habit' : 'Habit detected'}</span>
+      </div>
+      <AnimatePresence initial={false}>
+        {open && <motion.div key="pattern" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3 }} className="overflow-hidden"><Pattern x={x} /></motion.div>}
+      </AnimatePresence>
+    </motion.article>
+  );
+}
+
+function Compare({ selected, setSelected }) {
+  const sel = REPORTS.filter(x => selected.has(x.u.id));
+  const full = selected.size >= 3;
+  const data = DATA.weeks.map((w, i) => { const row = { week: w }; for (const x of sel) row[x.u.id] = x.scores[i] == null ? null : Math.round(x.scores[i] * 10) / 10; return row; });
+  const toggle = id => { const s = new Set(selected); if (s.has(id)) s.delete(id); else s.add(id); setSelected(s); };
+  return (
+    <div className="bg-card border border-line rounded-card p-5 grid gap-[18px]" id="view-compare" role="tabpanel" aria-labelledby="tab-compare">
+      <div className="flex flex-wrap items-baseline justify-between gap-4"><h2 className="font-serif text-lg font-medium m-0">Compare progress scores</h2><p className="m-0 text-[13px] text-mute">Pick two or three people</p></div>
+      <div className="flex flex-wrap gap-2">
+        {REPORTS.filter(x => x.r.verdict !== 'new').map(x => {
+          const on = selected.has(x.u.id), dis = !on && full;
+          return (
+            <label key={x.u.id} className={`relative inline-flex items-center gap-2 pl-1.5 pr-3 py-[5px] rounded-full border text-[13px] font-semibold select-none ${on ? 'border-brand' : 'border-line bg-card2'} ${dis ? 'opacity-45 cursor-not-allowed' : 'cursor-pointer'} has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-brand`} style={on ? { background: 'var(--brand-soft)' } : undefined}>
+              <input type="checkbox" className="absolute inset-0 opacity-0 w-full h-full m-0 cursor-pointer disabled:cursor-not-allowed" checked={on} disabled={dis} onChange={() => toggle(x.u.id)} aria-label={`Compare ${x.u.name}`} />
+              <Avatar x={x} size={24} cls="text-[10px]" />{x.u.name}
+            </label>
+          );
+        })}
+      </div>
+      {sel.length < 2 ? (
+        <p className="text-center text-mute py-7 m-0">Select {sel.length ? 'one more person' : 'two or three people'} to draw the chart.</p>
+      ) : (
+        <div className="h-[280px]" role="img" aria-label={`Progress score by week for ${sel.map(x => x.u.name).join(', ')}`}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data} margin={{ top: 12, right: 16, bottom: 4, left: -16 }}>
+              <CartesianGrid stroke="var(--line)" vertical={false} />
+              <XAxis dataKey="week" tickFormatter={fmtDate} tick={{ fill: 'var(--mute)', fontSize: 11 }} axisLine={{ stroke: 'var(--line)' }} tickLine={false} />
+              <YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tick={{ fill: 'var(--mute)', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip labelFormatter={fmtDate} contentStyle={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, color: 'var(--ink)', fontSize: 13 }} itemStyle={{ color: 'var(--ink)' }} cursor={{ stroke: 'var(--line-2)' }} />
+              <Legend wrapperStyle={{ fontSize: 13, color: 'var(--ink)' }} iconType="plainline" />
+              {sel.map(x => <Line key={x.u.id} type="monotone" dataKey={x.u.id} name={`${x.u.name} · ${x.score}`} stroke={x.color} strokeWidth={2.5} dot={false} activeDot={{ r: 5, stroke: 'var(--card)', strokeWidth: 2 }} connectNulls={false} animationDuration={1000} />)}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ================================================================
+   App
+   ================================================================ */
+function App() {
+  const [range, setRange] = useState('4w');
+  const [from, setFrom] = useState(N - 4);
+  const [to, setTo] = useState(N - 1);
+  const [search, setSearch] = useState('');
+  const [verdict, setVerdict] = useState(null);
+  const [sort, setSort] = useState('improvement');
+  const [view, setView] = useState('reports');
+  const [expanded, setExpanded] = useState(() => new Set());
+  const [compare, setCompare] = useState(() => new Set());
+  const [theme, setThemeState] = useState(() => { try { return localStorage.getItem('leadlens-team-theme') === 'dark' ? 'dark' : 'light'; } catch (_) { return 'light'; } });
+  const setTheme = t => { setThemeState(t); try { localStorage.setItem('leadlens-team-theme', t); } catch (_) {} };
+  useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
+
+  const [a, b] = windowFor(range, from, to);
+  const groups = useMemo(() => { const g = { improving: [], same: [], declining: [], new: [] }; for (const x of REPORTS) g[x.r.verdict].push(x); return g; }, []);
+  const list = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const commitsIn = x => { let s = 0; for (let i = a; i <= b; i++) { const w = weekAt(x.u, i); if (w) s += w.commits; } return s; };
+    const ch = x => x.r.change == null ? -Infinity : x.r.change;
+    const sorters = {
+      improvement: (p, q2) => ch(q2) - ch(p) || p.u.name.localeCompare(q2.u.name),
+      decline: (p, q2) => (p.r.change == null) - (q2.r.change == null) || ch(p) - ch(q2) || p.u.name.localeCompare(q2.u.name),
+      commits: (p, q2) => commitsIn(q2) - commitsIn(p) || p.u.name.localeCompare(q2.u.name),
+      name: (p, q2) => p.u.name.localeCompare(q2.u.name)
+    };
+    return REPORTS.filter(x => (!verdict || x.r.verdict === verdict) && (!q || x.u.name.toLowerCase().includes(q) || x.u.role.toLowerCase().includes(q))).sort(sorters[sort]);
+  }, [search, verdict, sort, a, b]);
+
+  const toggleExpand = id => setExpanded(prev => { const s = new Set(prev); if (s.has(id)) s.delete(id); else s.add(id); return s; });
+  const onExport = () => { setExpanded(new Set(REPORTS.map(x => x.u.id))); setTimeout(() => window.print(), 400); };
+  const tabRefs = [useRef(null), useRef(null)];
+  const onTabKey = (e, i) => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); const j = (i + 1) % 2; setView(j ? 'compare' : 'reports'); tabRefs[j].current && tabRefs[j].current.focus(); } };
+  const tabCls = on => `border-0 rounded-full px-3.5 py-1.5 font-mono text-xs ${on ? 'bg-ink text-bg' : 'bg-transparent text-mute hover:text-ink'}`;
+
+  return (
+    <ThemeCtx.Provider value={PALETTE[theme]}>
+    <div className="max-w-[1200px] mx-auto grid gap-7 px-4 md:px-8 pb-[72px]">
+      <TopBar {...{ range, setRange, from, to, setFrom, setTo, search, setSearch, theme, setTheme, onExport }} />
+      <Kpis a={a} b={b} />
+      <Verdicts groups={groups} verdict={verdict} setVerdict={setVerdict} />
+      <section aria-labelledby="people-h">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5 no-print">
+          <h2 id="people-h" className="sr-only">People</h2>
+          <div className="inline-flex bg-card border border-line rounded-full p-[3px]" role="tablist" aria-label="View">
+            <button ref={tabRefs[0]} role="tab" id="tab-reports" type="button" aria-selected={view === 'reports'} aria-controls="view-reports" tabIndex={view === 'reports' ? 0 : -1} className={tabCls(view === 'reports')} onClick={() => setView('reports')} onKeyDown={e => onTabKey(e, 0)}>Reports</button>
+            <button ref={tabRefs[1]} role="tab" id="tab-compare" type="button" aria-selected={view === 'compare'} aria-controls="view-compare" tabIndex={view === 'compare' ? 0 : -1} className={tabCls(view === 'compare')} onClick={() => setView('compare')} onKeyDown={e => onTabKey(e, 1)}>Compare</button>
+          </div>
+          <span className="text-mute text-[13px]" id="count" aria-live="polite">{list.length} of {REPORTS.length} people{verdict ? ` · ${VERDICT_LABEL[verdict]}` : ''}</span>
+          {view === 'reports' && (
+            <label className="sm:ml-auto inline-flex items-center gap-2 text-mute text-[13px]">Sort by
+              <select id="sort" className="ctl h-9 rounded-[10px] border border-line bg-card px-3 text-ink" value={sort} onChange={e => setSort(e.target.value)}>
+                <option value="improvement">Biggest improvement</option><option value="decline">Biggest decline</option><option value="commits">Most commits</option><option value="name">Name</option>
+              </select>
+            </label>
+          )}
+        </div>
+        <div className="mt-4">
+          {view === 'reports' ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4" id="view-reports" role="tabpanel" aria-labelledby="tab-reports">
+              {list.length === 0 && <div className="col-span-full text-center text-mute py-12">Nobody matches. Clear the search or the verdict filter.</div>}
+              {list.map((x, i) => <UserCard key={x.u.id} x={x} index={i} open={expanded.has(x.u.id)} toggle={() => toggleExpand(x.u.id)} />)}
+            </div>
+          ) : <Compare selected={compare} setSelected={setCompare} />}
+        </div>
+      </section>
+    </div>
+    </ThemeCtx.Provider>
+  );
+}
+function Empty() {
+  return (
+    <main className="max-w-[640px] mx-auto px-4 py-24 text-center">
+      <h1 className="font-serif text-2xl font-medium m-0 mb-3">No LeadLens data yet</h1>
+      <p className="text-mute text-[15px] m-0">This page shows real commits from your own LeadLens runs. In a project, run an author audit, then refresh:</p>
+      <pre className="inline-block text-left mt-4 px-4 py-3 rounded-[10px] border border-line bg-card font-mono text-[13px]">/leadlens:author-audit &lt;name-or-email&gt; 56d</pre>
+      <p className="text-soft text-[13px] mt-4 m-0">Reads every .claude/reports/data/*/inventory.json under the configured projects. Eight weeks of history gives a verdict; one week shows as "new".</p>
+    </main>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(REPORTS.length ? <App /> : <Empty />);
+});
+</script>
+</body>
+</html>
